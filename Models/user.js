@@ -4,7 +4,7 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,
+    unique: true,   // already creates an index
     lowercase: true,
     trim: true,
     match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email']
@@ -12,7 +12,7 @@ const userSchema = new mongoose.Schema({
   phoneNumber: {
     type: String,
     trim: true,
-    sparse: true
+    sparse: true    // if you want it indexed, you can add `unique: true` instead
   },
   password: {
     type: String,
@@ -39,6 +39,4 @@ const userSchema = new mongoose.Schema({
 });
 
 
-userSchema.index({ email: 1 });
-userSchema.index({ phoneNumber: 1 });
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);
