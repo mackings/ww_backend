@@ -1,0 +1,44 @@
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+  email: {
+    type: String,
+    required: [true, 'Email is required'],
+    unique: true,
+    lowercase: true,
+    trim: true,
+    match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email']
+  },
+  phoneNumber: {
+    type: String,
+    trim: true,
+    sparse: true
+  },
+  password: {
+    type: String,
+    required: [true, 'Password is required'],
+    minlength: 8,
+    select: false
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  resetPasswordToken: String,
+  resetPasswordExpires: Date,
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+}, {
+  timestamps: true
+});
+
+
+userSchema.index({ email: 1 });
+userSchema.index({ phoneNumber: 1 });
+module.exports = mongoose.models.User || mongoose.model('User', userSchema);
