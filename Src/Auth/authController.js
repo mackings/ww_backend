@@ -1,5 +1,4 @@
 
-
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const User = require('../../Models/user');
@@ -9,6 +8,7 @@ const { sendSMS } = require('../../Utils/smsUtil');
 const ApiResponse = require("../../Utils/apiResponse");
 const generateOTP = require('../../Utils/genOtp');
 const generateToken = require('../../Utils/genToken');
+
 
 
 
@@ -64,6 +64,8 @@ exports.signup = async (req, res) => {
   }
 };
 
+
+
 /**
  * @desc    Signin
  * @route   POST /api/auth/signin
@@ -104,32 +106,49 @@ exports.signin = async (req, res) => {
   }
 };
 
+
+
+
 /**
  * @desc    Forgot Password
  */
+
+
 exports.forgotPassword = async (req, res) => {
   try {
     const { email, phoneNumber, method } = req.body;
 
+    console.log('Request body:', req.body);
+
     if (!method || (method === 'email' && !email) || (method === 'phone' && !phoneNumber)) {
-      return ApiResponse.error(res, 'Please provide valid recovery method', 400);
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide valid recovery method',
+      });
     }
 
     const query = method === 'email' ? { email } : { phoneNumber };
     const user = await User.findOne(query);
+    console.log('User found:', user ? user._id : null);
+
     if (!user) {
-      return ApiResponse.error(res, 'User not found', 404);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
     }
 
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    console.log('Generated OTP:', otp);
 
-    await OTP.create({
+    const otpRecord = await OTP.create({
       userId: user._id,
       otp,
       type: 'password_reset',
       expiresAt: otpExpires,
     });
+    console.log('OTP record created:', otpRecord._id);
 
     if (method === 'email') {
       await sendEmail({
@@ -137,19 +156,34 @@ exports.forgotPassword = async (req, res) => {
         subject: 'Password Reset OTP',
         text: `Your OTP is: ${otp}. Valid for 10 minutes.`,
       });
+      console.log(`OTP sent to email: ${email}`);
     } else {
       await sendSMS({
         to: phoneNumber,
         message: `Your OTP is: ${otp}. Valid for 10 minutes.`,
       });
+      console.log(`OTP sent to phone: ${phoneNumber}`);
     }
 
-    return ApiResponse.success(res, `OTP sent to your ${method}`, { userId: user._id });
+    console.log('About to send response...');
+    return res.status(200).json({
+      success: true,
+      message: `OTP sent to your ${method}`,
+      userId: user._id.toString(),
+    });
+
   } catch (error) {
     console.error('Forgot password error:', error);
-    return ApiResponse.error(res, 'Server error during password reset request', 500);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during password reset request',
+    });
   }
 };
+
+
+
+
 
 /**
  * @desc    Verify OTP
@@ -190,19 +224,18 @@ exports.verifyOTP = async (req, res) => {
   }
 };
 
+
+
+
 /**
  * @desc    Reset Password
  */
 exports.resetPassword = async (req, res) => {
   try {
-    const { resetToken, password, confirmPassword } = req.body;
+    const { resetToken, password} = req.body;
 
-    if (!resetToken || !password || !confirmPassword) {
+    if (!resetToken || !password) {
       return ApiResponse.error(res, 'Please provide all required fields', 400);
-    }
-
-    if (password !== confirmPassword) {
-      return ApiResponse.error(res, 'Passwords do not match', 400);
     }
 
     if (password.length < 8) {
@@ -231,6 +264,7 @@ exports.resetPassword = async (req, res) => {
     return ApiResponse.error(res, 'Server error during password reset', 500);
   }
 };
+
 
 
 
