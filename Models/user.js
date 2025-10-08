@@ -12,7 +12,7 @@ const userSchema = new mongoose.Schema({
   phoneNumber: {
     type: String,
     trim: true,
-    sparse: true    // if you want it indexed, you can add `unique: true` instead
+    sparse: true    
   },
   password: {
     type: String,

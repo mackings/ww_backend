@@ -1,37 +1,25 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
-require('dotenv').config(({quiet:true}));
+require('dotenv').config({ quiet: true });
 
 const app = express();
 
-// Middleware
-app.use(helmet()); 
-app.use(cors()); 
-app.use(express.json()); 
-app.use(express.urlencoded({ extended: true })); 
-app.use(morgan('dev')); 
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, 
-  message: 'Too many requests from this IP, please try again later'
-});
-app.use('/api', limiter);
+// Basic middleware
+app.use(helmet());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI, {})
   .then(() => console.log('MongoDB connected successfully'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // Routes
-const authRoutes = require('./Routes/authRoutes');
+const authRoutes = require('../wwBackend/Routes/authRoutes');
 app.use('/api/auth', authRoutes);
 
+// Health check
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
