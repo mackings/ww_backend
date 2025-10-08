@@ -17,7 +17,13 @@ mongoose.connect(process.env.MONGODB_URI, {})
 
 // Routes
 const authRoutes = require('../wwBackend/Routes/authRoutes');
+const bomRoutes = require("../wwBackend/Routes/bomRoutes");
+const quotationRoutes = require("../wwBackend/Routes/quotationRoutes");
+const productRoutes = require("../wwBackend/Routes/productRoutes");
 app.use('/api/auth', authRoutes);
+app.use('/api/quotation', quotationRoutes);
+app.use('/api/bom', bomRoutes);
+app.use('/api/product', productRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
