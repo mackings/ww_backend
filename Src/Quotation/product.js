@@ -1,37 +1,49 @@
 const Product = require('../../Models/productModel');
+const ImageKit = require("imagekit");
 
-// @desc    Create new product
-// @route   POST /api/products
-// @access  Private
+const imagekit = new ImageKit({
+  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
+});
+
+
+
 exports.createProduct = async (req, res) => {
   try {
-    const {
-      name,
-      productId,
-      category,
-      subCategory,
-      description,
-      image
-    } = req.body;
+    const { name, category, subCategory, description } = req.body;
 
     if (!name || !category) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide product name and category'
+        message: "Please provide product name and category",
       });
     }
 
-    // Check if product ID already exists
-    if (productId) {
-      const existingProduct = await Product.findOne({ productId, userId: req.user.id });
-      if (existingProduct) {
-        return res.status(400).json({
-          success: false,
-          message: 'Product ID already exists'
-        });
-      }
+    // ✅ Auto-generate product ID (e.g. PRD-ABC123)
+    const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const productId = `PRD-${randomCode}`;
+
+    // ✅ Ensure uniqueness
+    const existing = await Product.findOne({ productId });
+    if (existing) {
+      // regenerate if collision (rare)
+      productId = `PRD-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     }
 
+    let uploadedImage = null;
+
+    // ✅ Upload image from Multer buffer if provided
+    if (req.file) {
+      const uploadResponse = await imagekit.upload({
+        file: req.file.buffer.toString("base64"),
+        fileName: `${Date.now()}_${name.replace(/\s+/g, "_")}.jpg`,
+        folder: "/products",
+      });
+      uploadedImage = uploadResponse.url;
+    }
+
+    // ✅ Create product
     const product = await Product.create({
       userId: req.user.id,
       name,
@@ -39,24 +51,23 @@ exports.createProduct = async (req, res) => {
       category,
       subCategory,
       description,
-      image
+      image: uploadedImage,
     });
 
     res.status(201).json({
       success: true,
-      message: 'Product created successfully',
-      data: product
+      message: "Product created successfully",
+      data: product,
     });
   } catch (error) {
-    console.error('Create product error:', error);
+    console.error("Create product error:", error);
     res.status(500).json({
       success: false,
-      message: 'Error creating product',
-      error: error.message
+      message: "Error creating product",
+      error: error.message,
     });
   }
 };
-
 
 
 // @desc    Get all products
@@ -114,9 +125,12 @@ exports.getAllProducts = async (req, res) => {
   }
 };
 
+
+
 // @desc    Get single product
 // @route   GET /api/products/:id
 // @access  Private
+
 exports.getProduct = async (req, res) => {
   try {
     const product = await Product.findOne({
