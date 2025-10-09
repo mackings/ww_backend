@@ -57,9 +57,13 @@ exports.createProduct = async (req, res) => {
   }
 };
 
+
+
 // @desc    Get all products
 // @route   GET /api/products
 // @access  Private
+
+
 exports.getAllProducts = async (req, res) => {
   try {
     const { category, subCategory, search, page = 1, limit = 20 } = req.query;
@@ -237,6 +241,7 @@ exports.deleteProduct = async (req, res) => {
 // @desc    Get product categories
 // @route   GET /api/products/categories
 // @access  Private
+
 exports.getCategories = async (req, res) => {
   try {
     const categories = await Product.distinct('category', { userId: req.user.id });

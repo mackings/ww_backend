@@ -3,6 +3,8 @@ const BOM = require('../..//Models/bomModel');
 // @desc    Create new BOM
 // @route   POST /api/boms
 // @access  Private
+
+
 exports.createBOM = async (req, res) => {
   try {
     const { name, description, materials } = req.body;
@@ -199,6 +201,7 @@ exports.deleteBOM = async (req, res) => {
 // @desc    Add material to BOM
 // @route   POST /api/boms/:id/materials
 // @access  Private
+
 exports.addMaterialToBOM = async (req, res) => {
   try {
     const bom = await BOM.findOne({
