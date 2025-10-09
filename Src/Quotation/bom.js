@@ -5,7 +5,9 @@ const BOM = require('../..//Models/bomModel');
 // @access  Private
 
 
+
 exports.createBOM = async (req, res) => {
+
   try {
     const { name, description, materials } = req.body;
 
@@ -16,12 +18,19 @@ exports.createBOM = async (req, res) => {
       });
     }
 
-    // Calculate total cost
     let totalCost = 0;
     materials.forEach(material => {
-      const materialCost = material.price * material.squareMeter;
+      const squareMeter = material.squareMeter || 0;
+      const price = material.price || 0;
+      const quantity = material.quantity || 1;
+
+      const materialCost = price * squareMeter * quantity;
       totalCost += materialCost;
     });
+
+    // Round to 2 decimal places
+    totalCost = Number(totalCost.toFixed(2));
+
 
     const bom = await BOM.create({
       userId: req.user.id,
@@ -45,6 +54,9 @@ exports.createBOM = async (req, res) => {
     });
   }
 };
+
+
+
 
 // @desc    Get all BOMs
 // @route   GET /api/boms
