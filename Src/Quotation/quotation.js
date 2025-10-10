@@ -5,6 +5,8 @@ const Product = require('../../Models/productModel');
 // @desc    Create new quotation
 // @route   POST /api/quotations
 // @access  Private
+
+
 exports.createQuotation = async (req, res) => {
   try {
     const {
@@ -72,6 +74,7 @@ exports.createQuotation = async (req, res) => {
     });
   }
 };
+
 
 // @desc    Get all quotations
 // @route   GET /api/quotations
