@@ -3,16 +3,9 @@ const BOM = require('../..//Models/bomModel');
 // @desc    Create new BOM
 // @route   POST /api/boms
 // @access  Private
-
-
-
-
-
-
 exports.createBOM = async (req, res) => {
-
   try {
-    const { name, description, materials } = req.body;
+    const { name, description, materials, additionalCosts } = req.body;
 
     if (!name || !materials || materials.length === 0) {
       return res.status(400).json({
@@ -21,26 +14,41 @@ exports.createBOM = async (req, res) => {
       });
     }
 
-    let totalCost = 0;
+    // Calculate materials cost
+    let materialsCost = 0;
     materials.forEach(material => {
       const squareMeter = material.squareMeter || 0;
       const price = material.price || 0;
       const quantity = material.quantity || 1;
-
       const materialCost = price * squareMeter * quantity;
-      totalCost += materialCost;
+      materialsCost += materialCost;
     });
 
-    // Round to 2 decimal places
-    totalCost = Number(totalCost.toFixed(2));
+    // Calculate additional costs total
+    let additionalCostsTotal = 0;
+    if (additionalCosts && additionalCosts.length > 0) {
+      additionalCosts.forEach(cost => {
+        additionalCostsTotal += cost.amount || 0;
+      });
+    }
 
+    // Calculate total cost
+    const totalCost = materialsCost + additionalCostsTotal;
+
+    // Round to 2 decimal places
+    const roundedMaterialsCost = Number(materialsCost.toFixed(2));
+    const roundedAdditionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
+    const roundedTotalCost = Number(totalCost.toFixed(2));
 
     const bom = await BOM.create({
       userId: req.user.id,
       name,
       description,
       materials,
-      totalCost
+      additionalCosts: additionalCosts || [],
+      materialsCost: roundedMaterialsCost,
+      additionalCostsTotal: roundedAdditionalCostsTotal,
+      totalCost: roundedTotalCost
     });
 
     res.status(201).json({
@@ -60,6 +68,104 @@ exports.createBOM = async (req, res) => {
 
 
 
+// @desc    Add additional cost to BOM
+// @route   POST /api/boms/:id/additional-costs
+// @access  Private
+exports.addAdditionalCost = async (req, res) => {
+  try {
+    const bom = await BOM.findOne({
+      _id: req.params.id,
+      userId: req.user.id
+    });
+
+    if (!bom) {
+      return res.status(404).json({
+        success: false,
+        message: 'BOM not found'
+      });
+    }
+
+    const { name, amount, description } = req.body;
+
+    if (!name || amount === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide cost name and amount'
+      });
+    }
+
+    bom.additionalCosts.push({ name, amount, description });
+
+    // Recalculate additional costs total
+    let additionalCostsTotal = 0;
+    bom.additionalCosts.forEach(cost => {
+      additionalCostsTotal += cost.amount || 0;
+    });
+
+    bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
+    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
+
+    await bom.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Additional cost added successfully',
+      data: bom
+    });
+  } catch (error) {
+    console.error('Add additional cost error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error adding additional cost'
+    });
+  }
+};
+
+// @desc    Delete additional cost from BOM
+// @route   DELETE /api/boms/:id/additional-costs/:costId
+// @access  Private
+exports.deleteAdditionalCost = async (req, res) => {
+  try {
+    const bom = await BOM.findOne({
+      _id: req.params.id,
+      userId: req.user.id
+    });
+
+    if (!bom) {
+      return res.status(404).json({
+        success: false,
+        message: 'BOM not found'
+      });
+    }
+
+    bom.additionalCosts = bom.additionalCosts.filter(
+      cost => cost._id.toString() !== req.params.costId
+    );
+
+    // Recalculate additional costs total
+    let additionalCostsTotal = 0;
+    bom.additionalCosts.forEach(cost => {
+      additionalCostsTotal += cost.amount || 0;
+    });
+
+    bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
+    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
+
+    await bom.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Additional cost deleted successfully',
+      data: bom
+    });
+  } catch (error) {
+    console.error('Delete additional cost error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting additional cost'
+    });
+  }
+};
 
 // @desc    Get all BOMs
 // @route   GET /api/boms
@@ -134,9 +240,13 @@ exports.getBOM = async (req, res) => {
   }
 };
 
+
+
 // @desc    Update BOM
 // @route   PUT /api/boms/:id
 // @access  Private
+
+
 exports.updateBOM = async (req, res) => {
   try {
     const bom = await BOM.findOne({
@@ -151,21 +261,48 @@ exports.updateBOM = async (req, res) => {
       });
     }
 
-    const { name, description, materials } = req.body;
+    const { name, description, materials, additionalCosts } = req.body;
 
-    // Recalculate total if materials changed
+    // Recalculate costs if materials or additional costs changed
+    let shouldRecalculate = false;
+    
     if (materials) {
-      let totalCost = 0;
-      materials.forEach(material => {
-        const materialCost = material.price * material.squareMeter;
-        totalCost += materialCost;
+      bom.materials = materials;
+      shouldRecalculate = true;
+    }
+    
+    if (additionalCosts !== undefined) {
+      bom.additionalCosts = additionalCosts;
+      shouldRecalculate = true;
+    }
+
+    if (shouldRecalculate) {
+      // Calculate materials cost
+      let materialsCost = 0;
+      bom.materials.forEach(material => {
+        const squareMeter = material.squareMeter || 0;
+        const price = material.price || 0;
+        const quantity = material.quantity || 1;
+        const materialCost = price * squareMeter * quantity;
+        materialsCost += materialCost;
       });
-      bom.totalCost = totalCost;
+
+      // Calculate additional costs total
+      let additionalCostsTotal = 0;
+      if (bom.additionalCosts && bom.additionalCosts.length > 0) {
+        bom.additionalCosts.forEach(cost => {
+          additionalCostsTotal += cost.amount || 0;
+        });
+      }
+
+      // Update costs
+      bom.materialsCost = Number(materialsCost.toFixed(2));
+      bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
+      bom.totalCost = Number((materialsCost + additionalCostsTotal).toFixed(2));
     }
 
     if (name) bom.name = name;
     if (description) bom.description = description;
-    if (materials) bom.materials = materials;
 
     await bom.save();
 
@@ -182,6 +319,8 @@ exports.updateBOM = async (req, res) => {
     });
   }
 };
+
+
 
 // @desc    Delete BOM
 // @route   DELETE /api/boms/:id
@@ -216,7 +355,6 @@ exports.deleteBOM = async (req, res) => {
 // @desc    Add material to BOM
 // @route   POST /api/boms/:id/materials
 // @access  Private
-
 exports.addMaterialToBOM = async (req, res) => {
   try {
     const bom = await BOM.findOne({
@@ -242,13 +380,18 @@ exports.addMaterialToBOM = async (req, res) => {
 
     bom.materials.push(material);
 
-    // Recalculate total cost
-    let totalCost = 0;
+    // Recalculate materials cost
+    let materialsCost = 0;
     bom.materials.forEach(mat => {
-      const materialCost = mat.price * mat.squareMeter;
-      totalCost += materialCost;
+      const squareMeter = mat.squareMeter || 0;
+      const price = mat.price || 0;
+      const quantity = mat.quantity || 1;
+      const materialCost = price * squareMeter * quantity;
+      materialsCost += materialCost;
     });
-    bom.totalCost = totalCost;
+
+    bom.materialsCost = Number(materialsCost.toFixed(2));
+    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
 
     await bom.save();
 
@@ -266,9 +409,13 @@ exports.addMaterialToBOM = async (req, res) => {
   }
 };
 
+
+
 // @desc    Delete material from BOM
 // @route   DELETE /api/boms/:id/materials/:materialId
 // @access  Private
+
+
 exports.deleteMaterialFromBOM = async (req, res) => {
   try {
     const bom = await BOM.findOne({
@@ -287,13 +434,18 @@ exports.deleteMaterialFromBOM = async (req, res) => {
       material => material._id.toString() !== req.params.materialId
     );
 
-    // Recalculate total cost
-    let totalCost = 0;
+    // Recalculate materials cost
+    let materialsCost = 0;
     bom.materials.forEach(material => {
-      const materialCost = material.price * material.squareMeter;
-      totalCost += materialCost;
+      const squareMeter = material.squareMeter || 0;
+      const price = material.price || 0;
+      const quantity = material.quantity || 1;
+      const materialCost = price * squareMeter * quantity;
+      materialsCost += materialCost;
     });
-    bom.totalCost = totalCost;
+
+    bom.materialsCost = Number(materialsCost.toFixed(2));
+    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
 
     await bom.save();
 

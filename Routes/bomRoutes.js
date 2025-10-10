@@ -17,4 +17,9 @@ router.delete('/:id', bomController.deleteBOM);
 router.post('/:id/materials', bomController.addMaterialToBOM);
 router.delete('/:id/materials/:materialId', bomController.deleteMaterialFromBOM);
 
+//Additional Costs
+
+router.post('/:id/additional-costs', bomController.addAdditionalCost);
+router.delete('/:id/additional-costs/:costId', bomController.deleteAdditionalCost);
+
 module.exports = router;
