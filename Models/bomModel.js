@@ -12,7 +12,7 @@ if (mongoose.models.BOM) {
     foamType: String,
     type: {
       type: String,
-      enum: ['wood', 'foam', 'other'],
+      //enum: ['wood', 'foam', 'other'],
       default: 'wood'
     },
     width: Number,
