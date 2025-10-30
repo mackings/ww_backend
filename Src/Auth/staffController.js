@@ -6,6 +6,7 @@ const ApiResponse = require('../../Utils/apiResponse');
 
 
 
+
 // @desc    Create Staff
 // @route   POST /api/staff/create
 // @access  Admin only
@@ -66,6 +67,7 @@ exports.createStaff = async (req, res) => {
 // @desc    Grant Staff Access
 // @route   PATCH /api/staff/:id/grant
 // @access  Admin only
+
 exports.grantAccess = async (req, res) => {
   try {
     const adminId = req.user.id;
@@ -99,9 +101,13 @@ exports.grantAccess = async (req, res) => {
 
 
 
+
+
+
 // @desc    Revoke Staff Access
 // @route   PATCH /api/staff/:id/revoke
 // @access  Admin only
+
 exports.revokeAccess = async (req, res) => {
   try {
     const adminId = req.user.id;
@@ -132,6 +138,9 @@ exports.revokeAccess = async (req, res) => {
     return ApiResponse.error(res, 'Server error revoking access', 500);
   }
 };
+
+
+
 
 
 
