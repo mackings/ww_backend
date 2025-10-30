@@ -1,42 +1,44 @@
 const mongoose = require('mongoose');
 
+
 const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,   // already creates an index
+    unique: true,
     lowercase: true,
     trim: true,
-    match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email']
   },
   phoneNumber: {
     type: String,
     trim: true,
-    sparse: true    
+    sparse: true,
   },
   password: {
     type: String,
     required: [true, 'Password is required'],
     minlength: 8,
-    select: false
+    select: false,
+  },
+  role: {
+    type: String,
+    enum: ['admin', 'staff'],
+    default: 'staff',
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User', // The admin who created this staff
+  },
+  accessGranted: {
+    type: Boolean,
+    default: true,
   },
   isVerified: {
     type: Boolean,
-    default: false
+    default: false,
   },
   resetPasswordToken: String,
   resetPasswordExpires: Date,
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
-}, {
-  timestamps: true
-});
-
+}, { timestamps: true });
 
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);

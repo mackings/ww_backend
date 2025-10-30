@@ -23,11 +23,13 @@ const authRoutes = require("./Routes/authRoutes");
 const bomRoutes = require("./Routes/bomRoutes");
 const quotationRoutes = require("./Routes/quotationRoutes");
 const productRoutes = require("./Routes/productRoutes");
+const staffRoutes = require("./Routes/staffRoutes");
 
 app.use('/api/auth', authRoutes);
 app.use('/api/quotation', quotationRoutes);
 app.use('/api/bom', bomRoutes);
 app.use('/api/product', productRoutes);
+app.use('./api/staff', staffRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
