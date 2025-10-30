@@ -97,6 +97,7 @@ exports.signin = async (req, res) => {
         id: user._id,
         email: user.email,
         phoneNumber: user.phoneNumber,
+        role: user.role,
         isVerified: user.isVerified,
       },
     });

@@ -4,9 +4,12 @@ const crypto = require('crypto');
 const { sendEmail } = require('../../Utils/emailUtil');
 const ApiResponse = require('../../Utils/apiResponse');
 
+
+
 // @desc    Create Staff
 // @route   POST /api/staff/create
 // @access  Admin only
+
 exports.createStaff = async (req, res) => {
   try {
     const adminId = req.user.id; // from auth middleware

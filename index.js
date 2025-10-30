@@ -29,7 +29,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/quotation', quotationRoutes);
 app.use('/api/bom', bomRoutes);
 app.use('/api/product', productRoutes);
-app.use('./api/staff', staffRoutes);
+app.use('/api/staff', staffRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
