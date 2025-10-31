@@ -16,11 +16,7 @@ if (mongoose.models.BOM) {
     },
     woodType: String,
     foamType: String,
-    type: {
-      type: String,
-      enum: ['wood', 'foam', 'metal', 'fabric', 'other'],
-      default: 'wood'
-    },
+    type: String,
     width: Number,
     height: Number,
     length: Number,

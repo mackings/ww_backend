@@ -2,7 +2,11 @@ const mongoose = require('mongoose');
 
 
 const userSchema = new mongoose.Schema({
-
+  fullname: {
+    type: String,
+    required: [true, 'Full name is required'],
+    trim: true,
+  },
   email: {
     type: String,
     required: [true, 'Email is required'],
@@ -12,14 +16,19 @@ const userSchema = new mongoose.Schema({
   },
   phoneNumber: {
     type: String,
+    required: [true, 'Phone number is required'],
     trim: true,
-    sparse: true,
   },
   password: {
     type: String,
     required: [true, 'Password is required'],
     minlength: 8,
     select: false,
+  },
+  position: {
+    type: String,
+    required: [true, 'Position is required'],
+    trim: true,
   },
   role: {
     type: String,

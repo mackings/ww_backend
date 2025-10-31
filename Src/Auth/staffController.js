@@ -14,7 +14,12 @@ const ApiResponse = require('../../Utils/apiResponse');
 exports.createStaff = async (req, res) => {
   try {
     const adminId = req.user.id; // from auth middleware
-    const { email, phoneNumber } = req.body;
+    const { fullname, email, phoneNumber, position, password } = req.body;
+
+    // Validate required fields
+    if (!fullname || !email || !phoneNumber || !position || !password) {
+      return ApiResponse.error(res, 'All fields are required: fullname, email, phoneNumber, position, password', 400);
+    }
 
     // Ensure only admin can create staff
     const admin = await User.findById(adminId);
@@ -28,29 +33,40 @@ exports.createStaff = async (req, res) => {
       return ApiResponse.error(res, 'User already exists with this email', 400);
     }
 
-    // Generate temp password
-    const tempPassword = crypto.randomBytes(6).toString('hex');
-    const hashedPassword = await bcrypt.hash(tempPassword, 12);
+    // Validate password length
+    if (password.length < 8) {
+      return ApiResponse.error(res, 'Password must be at least 8 characters long', 400);
+    }
 
+    // Hash the password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create staff
     const staff = await User.create({
+      fullname,
       email,
       phoneNumber,
+      position,
       password: hashedPassword,
       role: 'staff',
       createdBy: adminId,
       isVerified: false,
+      accessGranted: true,
     });
 
     // Send onboarding email
     await sendEmail({
       to: email,
       subject: 'Welcome to the team 🎉',
-      text: `Hello, your staff account has been created.\n\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease log in and change your password immediately.`,
+      text: `Hello ${fullname},\n\nYour staff account has been created.\n\nEmail: ${email}\nPosition: ${position}\nPassword: ${password}\n\nPlease log in and change your password immediately for security purposes.\n\nBest regards,\nThe Team`,
     });
 
     return ApiResponse.success(res, 'Staff created successfully', {
       id: staff._id,
+      fullname: staff.fullname,
       email: staff.email,
+      phoneNumber: staff.phoneNumber,
+      position: staff.position,
       role: staff.role,
     }, 201);
 
@@ -178,6 +194,8 @@ exports.deleteStaff = async (req, res) => {
 // @desc    Get All Staff
 // @route   GET /api/staff
 // @access  Admin only
+
+
 exports.getAllStaff = async (req, res) => {
   try {
     const adminId = req.user.id;
@@ -187,7 +205,11 @@ exports.getAllStaff = async (req, res) => {
       return ApiResponse.error(res, 'Unauthorized – only admins can view staff', 403);
     }
 
-    const staff = await User.find({ createdBy: adminId });
+    const staff = await User.find({ 
+      createdBy: adminId,
+      role: 'staff' 
+    }).select('fullname email phoneNumber position role accessGranted isVerified createdAt');
+
     return ApiResponse.success(res, 'Staff fetched successfully', staff);
   } catch (error) {
     console.error('Get staff error:', error);
