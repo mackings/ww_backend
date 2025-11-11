@@ -4,10 +4,7 @@ const mongoose = require('mongoose');
 if (mongoose.models.BOM) {
   module.exports = mongoose.models.BOM;
 } else {
-  /**
-   * Material Schema
-   * Represents each material used for a product BOM
-   */
+
   const materialSchema = new mongoose.Schema({
     name: {
       type: String,
