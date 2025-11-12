@@ -26,6 +26,7 @@ const productRoutes = require("./Routes/productRoutes");
 const staffRoutes = require("./Routes/staffRoutes");
 const salesRoutes = require("./Routes/salesRoutes");
 const invoicesRoutes = require("./Routes/invoicesRoutes");
+const orderRoutes = require("./Routes/orderRoutes");
 
 
 app.use('/api/auth', authRoutes);
@@ -35,6 +36,7 @@ app.use('/api/product', productRoutes);
 app.use('/api/staff', staffRoutes);
 app.use("/api/sales", salesRoutes);
 app.use('/api/invoices', invoicesRoutes);
+app.use('/api/orders',orderRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
