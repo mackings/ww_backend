@@ -156,6 +156,7 @@ exports.getInvoice = async (req, res) => {
 };
 
 // Update invoice payment
+// Update invoice payment
 exports.updateInvoicePayment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -174,11 +175,17 @@ exports.updateInvoicePayment = async (req, res) => {
       return ApiResponse.error(res, 'Cannot update payment for cancelled invoice', 400);
     }
 
-    // Update payment
+    // UPDATE payment with validation
     if (amountPaid !== undefined) {
       if (amountPaid < 0) {
         return ApiResponse.error(res, 'Payment amount cannot be negative', 400);
       }
+      
+      // ADD THIS VALIDATION
+      if (amountPaid > invoice.finalTotal) {
+        return ApiResponse.error(res, `Payment amount (₦${amountPaid.toLocaleString()}) cannot exceed invoice total (₦${invoice.finalTotal.toLocaleString()})`, 400);
+      }
+      
       invoice.amountPaid = amountPaid;
     }
 
@@ -186,7 +193,7 @@ exports.updateInvoicePayment = async (req, res) => {
       invoice.notes = notes;
     }
 
-    await invoice.save(); // Pre-save hook will handle status updates
+    await invoice.save();
 
     return ApiResponse.success(res, 'Invoice payment updated successfully', invoice);
   } catch (error) {

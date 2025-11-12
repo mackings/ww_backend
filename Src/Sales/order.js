@@ -15,7 +15,6 @@ exports.createOrderFromQuotation = async (req, res) => {
       amountPaid = 0
     } = req.body;
 
-    // Validate quotation exists and belongs to user
     const quotation = await Quotation.findOne({
       _id: quotationId,
       userId: req.user._id
@@ -25,7 +24,6 @@ exports.createOrderFromQuotation = async (req, res) => {
       return ApiResponse.error(res, 'Quotation not found or unauthorized', 404);
     }
 
-    // Check if quotation is approved or sent
     if (quotation.status !== 'approved' && quotation.status !== 'sent') {
       return ApiResponse.error(res, 'Only approved or sent quotations can be converted to orders', 400);
     }
@@ -36,7 +34,6 @@ exports.createOrderFromQuotation = async (req, res) => {
       return ApiResponse.error(res, 'Order already exists for this quotation', 400);
     }
 
-    // Create order by copying all data from quotation
     const order = new Order({
       userId: req.user._id,
       quotationId: quotation._id,
@@ -47,7 +44,7 @@ exports.createOrderFromQuotation = async (req, res) => {
       phoneNumber: quotation.phoneNumber,
       email: quotation.email,
       description: quotation.description,
-      items: quotation.items, // Copy all items from quotation
+      items: quotation.items, 
       service: quotation.service,
       discount: quotation.discount,
       totalCost: quotation.totalCost,

@@ -25,6 +25,8 @@ const quotationRoutes = require("./Routes/quotationRoutes");
 const productRoutes = require("./Routes/productRoutes");
 const staffRoutes = require("./Routes/staffRoutes");
 const salesRoutes = require("./Routes/salesRoutes");
+const invoicesRoutes = require("./Routes/invoicesRoutes");
+
 
 app.use('/api/auth', authRoutes);
 app.use('/api/quotation', quotationRoutes);
@@ -32,6 +34,7 @@ app.use('/api/bom', bomRoutes);
 app.use('/api/product', productRoutes);
 app.use('/api/staff', staffRoutes);
 app.use("/api/sales", salesRoutes);
+app.use('/api/invoices', invoicesRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
