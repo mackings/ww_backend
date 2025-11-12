@@ -21,12 +21,14 @@ transporter.verify((error, success) => {
 exports.sendEmail = async (options) => {
   try {
     console.log('📧 Sending email to:', options.to);
+
     const mailOptions = {
       from: `${process.env.EMAIL_FROM_NAME || 'NoReply'} <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
       to: options.to,
       subject: options.subject,
       text: options.text || '',
       html: options.html || '',
+      attachments: options.attachments || [], // ✅ Attachments included
     };
 
     const info = await transporter.sendMail(mailOptions);
@@ -34,7 +36,9 @@ exports.sendEmail = async (options) => {
     return info;
   } catch (error) {
     console.error('❌ Error sending email:', error.message);
-    // Important: Don’t let email failure hang the request
     return null;
   }
 };
+
+
+

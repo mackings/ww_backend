@@ -2,17 +2,26 @@ const Invoice = require('../../Models/invoice');
 const Quotation = require('../../Models/quotationModel'); 
 const ApiResponse = require('../../Utils/apiResponse');
 
+const PDFDocument = require('pdfkit');
+const path = require('path');
+const fs = require('fs');
+
+const { sendEmail } = require('../../Utils/emailUtil');
+const generateInvoicePDF = require("../../Utils/GenPDF");
+
+
 
 
 
 exports.createInvoiceFromQuotation = async (req, res) => {
+
   try {
     const { quotationId, dueDate, notes, amountPaid } = req.body;
 
     // Validate quotation exists and belongs to user
     const quotation = await Quotation.findOne({
       _id: quotationId,
-      userId: req.user._id
+      userId: req.user._id,
     });
 
     if (!quotation) {
@@ -30,7 +39,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
       return ApiResponse.error(res, 'Invoice already exists for this quotation', 400);
     }
 
-    // Create invoice by copying all data from quotation
+    // Create invoice
     const invoice = new Invoice({
       userId: req.user._id,
       quotationId: quotation._id,
@@ -41,7 +50,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
       phoneNumber: quotation.phoneNumber,
       email: quotation.email,
       description: quotation.description,
-      items: quotation.items, // Copy all items from quotation
+      items: quotation.items,
       service: quotation.service,
       discount: quotation.discount,
       totalCost: quotation.totalCost,
@@ -49,22 +58,56 @@ exports.createInvoiceFromQuotation = async (req, res) => {
       discountAmount: quotation.discountAmount,
       finalTotal: quotation.finalTotal,
       amountPaid: amountPaid || 0,
-      dueDate: dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Default 30 days
-      notes: notes || ''
+      dueDate: dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      notes: notes || '',
     });
 
     await invoice.save();
 
-    // Update quotation status to 'completed'
+    // Update quotation status
     quotation.status = 'completed';
     await quotation.save();
 
-    return ApiResponse.success(res, 'Invoice created successfully', invoice, 201);
+    // ✅ Generate PDF invoice
+    const pdfPath = path.join(__dirname, `../../tmp/invoice_${invoice._id}.pdf`);
+    await generateInvoicePDF(invoice, pdfPath);
+
+    // ✅ Send PDF invoice via email
+    await sendEmail({
+      to: quotation.email,
+      subject: `Invoice for Quotation #${quotation.quotationNumber}`,
+      html: `
+        <p>Dear ${quotation.clientName},</p>
+        <p>Thank you for your business. Please find your invoice attached below.</p>
+        <p><strong>Amount Due:</strong> ₦${invoice.finalTotal.toLocaleString()}</p>
+        <p><strong>Due Date:</strong> ${new Date(invoice.dueDate).toDateString()}</p>
+        <br/>
+        <p>Best regards,<br/>Your Company</p>
+      `,
+      attachments: [
+        {
+          filename: `invoice_${quotation.quotationNumber}.pdf`,
+          path: pdfPath,
+        },
+      ],
+    });
+
+    // Optional: delete temp PDF after sending
+    fs.unlink(pdfPath, (err) => {
+      if (err) console.error('Error deleting temp PDF:', err.message);
+    });
+
+    return ApiResponse.success(res, 'Invoice created and sent via email', invoice, 201);
   } catch (error) {
     console.error('Create invoice error:', error);
     return ApiResponse.error(res, error.message || 'Server error creating invoice', 500);
   }
 };
+
+
+
+
+
 
 // Get all invoices for logged-in user
 exports.getAllInvoices = async (req, res) => {
