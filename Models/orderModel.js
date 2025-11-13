@@ -11,7 +11,7 @@ const orderItemSchema = new mongoose.Schema({
   thickness: Number,
   unit: {
     type: String,
-    enum: ['cm', 'inch', 'm'],
+    enum: ['cm', 'inch', 'm','ft','in'],
     default: 'cm'
   },
   squareMeter: Number,

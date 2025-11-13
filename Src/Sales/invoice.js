@@ -28,15 +28,15 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     }
 
     // Check if quotation is approved or sent
-    if (quotation.status !== 'approved' && quotation.status !== 'sent') {
-      return ApiResponse.error(res, 'Only approved or sent quotations can be converted to invoices', 400);
-    }
+  if (quotation.status !== 'approved' && quotation.status !== 'sent' && quotation.status !== 'draft') {
+  return ApiResponse.error(res, 'Only approved, sent, or draft quotations can be converted to invoices', 400);
+}
 
     // Check if invoice already exists for this quotation
-    const existingInvoice = await Invoice.findOne({ quotationId });
-    if (existingInvoice) {
-      return ApiResponse.error(res, 'Invoice already exists for this quotation', 400);
-    }
+    // const existingInvoice = await Invoice.findOne({ quotationId });
+    // if (existingInvoice) {
+    //   return ApiResponse.error(res, 'Invoice already exists for this quotation', 400);
+    // }
 
     // Create invoice
     const invoice = new Invoice({
@@ -64,7 +64,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     await invoice.save();
 
     // Update quotation status
-    quotation.status = 'completed';
+    quotation.status = 'sent';
     await quotation.save();
 
     // ✅ Generate PDF invoice - Use /tmp directory for Vercel

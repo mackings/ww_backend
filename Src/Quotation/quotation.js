@@ -18,7 +18,6 @@ exports.createQuotation = async (req, res) => {
       description,
       items,
       service,
-      discount
     } = req.body;
 
     // Validation
@@ -29,18 +28,18 @@ exports.createQuotation = async (req, res) => {
       });
     }
 
-    // Calculate totals
+    // Calculate totals with quantity (for reference/audit only)
     let totalCost = 0;
     let totalSellingPrice = 0;
 
     items.forEach(item => {
-      totalCost += item.costPrice || 0;
-      totalSellingPrice += item.sellingPrice || 0;
+      const itemQuantity = item.quantity || 1;
+      totalCost += (item.costPrice || 0) * itemQuantity;
+      totalSellingPrice += (item.sellingPrice || 0) * itemQuantity;
     });
 
-    // Apply discount
-    const discountAmount = discount ? (totalSellingPrice * discount) / 100 : 0;
-    const finalTotal = totalSellingPrice - discountAmount;
+    // Use service.totalPrice as finalTotal (already calculated in the app)
+    const finalTotal = service?.totalPrice || totalSellingPrice;
 
     const quotation = await Quotation.create({
       userId: req.user.id,
@@ -52,11 +51,9 @@ exports.createQuotation = async (req, res) => {
       description,
       items,
       service,
-      discount,
       totalCost,
       totalSellingPrice,
-      discountAmount,
-      finalTotal,
+      finalTotal,  // Use service.totalPrice from the app
       status: 'draft'
     });
 
