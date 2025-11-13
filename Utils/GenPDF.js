@@ -5,21 +5,38 @@ const path = require('path');
 /**
  * Generate an invoice PDF and save to filePath
  * @param {Object} invoice - Invoice document from MongoDB
- * @param {string} filePath - Destination path for the PDF
+ * @param {string} filePath - Destination path for the PDF (optional, auto-generated if not provided)
  * @returns {Promise<string>} - Resolves with file path after writing
  */
 async function generateInvoicePDF(invoice, filePath) {
   return new Promise((resolve, reject) => {
     try {
-      // ✅ Ensure tmp directory exists
-      const tmpDir = path.dirname(filePath);
-      if (!fs.existsSync(tmpDir)) {
-        fs.mkdirSync(tmpDir, { recursive: true });
-        console.log('📁 tmp directory created automatically');
+      // ✅ Use /tmp directory for serverless environments (Vercel, AWS Lambda, etc.)
+      // If no filePath provided, generate one in /tmp
+      let outputPath = filePath;
+      
+      if (!outputPath) {
+        const fileName = `invoice-${invoice.invoiceNumber || Date.now()}.pdf`;
+        outputPath = path.join('/tmp', fileName);
+      } else {
+        // Ensure the path uses /tmp for serverless
+        if (!outputPath.startsWith('/tmp')) {
+          const fileName = path.basename(outputPath);
+          outputPath = path.join('/tmp', fileName);
+        }
       }
 
+      // ✅ Ensure /tmp directory exists (it should by default in serverless)
+      const tmpDir = path.dirname(outputPath);
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+        console.log('📁 tmp directory created at:', tmpDir);
+      }
+
+      console.log('📄 Generating PDF at:', outputPath);
+
       const doc = new PDFDocument({ margin: 40 });
-      const stream = fs.createWriteStream(filePath);
+      const stream = fs.createWriteStream(outputPath);
 
       doc.pipe(stream);
 
@@ -35,7 +52,7 @@ async function generateInvoicePDF(invoice, filePath) {
       doc
         .fontSize(12)
         .fillColor('#555555')
-        .text(`Invoice Number: ${invoice.quotationNumber}`)
+        .text(`Invoice Number: ${invoice.invoiceNumber || invoice.quotationNumber}`)
         .text(`Date: ${new Date().toDateString()}`)
         .text(`Due Date: ${new Date(invoice.dueDate).toDateString()}`)
         .moveDown();
@@ -53,10 +70,10 @@ async function generateInvoicePDF(invoice, filePath) {
         .fontSize(12)
         .fillColor('#333333')
         .text(`Client Name: ${invoice.clientName}`)
-        .text(`Email: ${invoice.email}`)
-        .text(`Phone: ${invoice.phoneNumber}`)
-        .text(`Address: ${invoice.clientAddress || ''}`)
-        .text(`Nearest Bus Stop: ${invoice.nearestBusStop || ''}`)
+        .text(`Email: ${invoice.email || 'N/A'}`)
+        .text(`Phone: ${invoice.phoneNumber || 'N/A'}`)
+        .text(`Address: ${invoice.clientAddress || 'N/A'}`)
+        .text(`Nearest Bus Stop: ${invoice.nearestBusStop || 'N/A'}`)
         .moveDown();
 
       // ---------------------------
@@ -70,9 +87,9 @@ async function generateInvoicePDF(invoice, filePath) {
 
       if (Array.isArray(invoice.items) && invoice.items.length > 0) {
         invoice.items.forEach((item, i) => {
-          const name = item.name || item.description || 'Item';
+          const name = item.woodType || item.foamType || item.description || 'Item';
           const quantity = item.quantity || 1;
-          const price = item.price || 0;
+          const price = item.sellingPrice || item.costPrice || 0;
           const total = quantity * price;
 
           doc
@@ -89,20 +106,43 @@ async function generateInvoicePDF(invoice, filePath) {
       doc.moveDown();
 
       // ---------------------------
+      // SERVICE (if any)
+      // ---------------------------
+      if (invoice.service && invoice.service.product) {
+        doc
+          .fontSize(12)
+          .fillColor('#333333')
+          .text(`Service: ${invoice.service.product} - ₦${invoice.service.totalPrice?.toLocaleString() || 0}`);
+        doc.moveDown();
+      }
+
+      // ---------------------------
       // SUMMARY
       // ---------------------------
       doc
         .fontSize(12)
         .fillColor('#333333')
-        .text(`Discount: ₦${invoice.discountAmount || 0}`)
-        .text(`Amount Paid: ₦${invoice.amountPaid || 0}`)
+        .text(`Subtotal: ₦${(invoice.totalSellingPrice || 0).toLocaleString()}`)
+        .text(`Discount (${invoice.discount || 0}%): -₦${(invoice.discountAmount || 0).toLocaleString()}`)
+        .text(`Amount Paid: ₦${(invoice.amountPaid || 0).toLocaleString()}`)
+        .text(`Balance: ₦${(invoice.balance || 0).toLocaleString()}`)
         .moveDown(0.5);
 
       doc
         .fontSize(14)
         .fillColor('#000000')
-        .text(`Final Total: ₦${invoice.finalTotal.toLocaleString()}`, { align: 'right' })
+        .text(`Grand Total: ₦${(invoice.finalTotal || 0).toLocaleString()}`, { align: 'right' })
         .moveDown(1.5);
+
+      // ---------------------------
+      // PAYMENT STATUS
+      // ---------------------------
+      const statusColor = invoice.paymentStatus === 'paid' ? '#28a745' : '#dc3545';
+      doc
+        .fontSize(12)
+        .fillColor(statusColor)
+        .text(`Payment Status: ${(invoice.paymentStatus || 'unpaid').toUpperCase()}`, { align: 'center' })
+        .moveDown(1);
 
       // ---------------------------
       // NOTES / FOOTER
@@ -122,13 +162,20 @@ async function generateInvoicePDF(invoice, filePath) {
 
       doc.end();
 
-      stream.on('finish', () => resolve(filePath));
-      stream.on('error', (err) => reject(err));
+      stream.on('finish', () => {
+        console.log('✅ PDF generated successfully at:', outputPath);
+        resolve(outputPath);
+      });
+      
+      stream.on('error', (err) => {
+        console.error('❌ PDF generation error:', err);
+        reject(err);
+      });
     } catch (err) {
+      console.error('❌ PDF generation error:', err);
       reject(err);
     }
   });
 }
 
 module.exports = generateInvoicePDF;
-

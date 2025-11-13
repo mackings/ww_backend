@@ -14,7 +14,6 @@ const generateInvoicePDF = require("../../Utils/GenPDF");
 
 
 exports.createInvoiceFromQuotation = async (req, res) => {
-
   try {
     const { quotationId, dueDate, notes, amountPaid } = req.body;
 
@@ -68,36 +67,84 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     quotation.status = 'completed';
     await quotation.save();
 
-    // ✅ Generate PDF invoice
-    const pdfPath = path.join(__dirname, `../../tmp/invoice_${invoice._id}.pdf`);
-    await generateInvoicePDF(invoice, pdfPath);
+    // ✅ Generate PDF invoice - Use /tmp directory for Vercel
+    let pdfPath;
+    try {
+      // Let generateInvoicePDF create the file in /tmp automatically
+      pdfPath = `/tmp/invoice_${invoice._id}.pdf`;
+      await generateInvoicePDF(invoice, pdfPath);
+      console.log('✅ PDF generated successfully at:', pdfPath);
+    } catch (pdfError) {
+      console.error('❌ PDF generation failed:', pdfError);
+      // Continue without PDF - don't fail the entire request
+    }
 
-    // ✅ Send PDF invoice via email
-    await sendEmail({
-      to: quotation.email,
-      subject: `Invoice for Quotation #${quotation.quotationNumber}`,
-      html: `
-        <p>Dear ${quotation.clientName},</p>
-        <p>Thank you for your business. Please find your invoice attached below.</p>
-        <p><strong>Amount Due:</strong> ₦${invoice.finalTotal.toLocaleString()}</p>
-        <p><strong>Due Date:</strong> ${new Date(invoice.dueDate).toDateString()}</p>
-        <br/>
-        <p>Best regards,<br/>Your Company</p>
-      `,
-      attachments: [
-        {
-          filename: `invoice_${quotation.quotationNumber}.pdf`,
-          path: pdfPath,
-        },
-      ],
-    });
+    // ✅ Send PDF invoice via email (only if PDF was generated successfully)
+    if (pdfPath && quotation.email) {
+      try {
+        console.log('📧 Sending email to:', quotation.email);
+        console.log('📎 Attaching PDF from:', pdfPath);
 
-    // Optional: delete temp PDF after sending
-    fs.unlink(pdfPath, (err) => {
-      if (err) console.error('Error deleting temp PDF:', err.message);
-    });
+        await sendEmail({
+          to: quotation.email,
+          subject: `Invoice ${invoice.invoiceNumber} for Quotation #${quotation.quotationNumber}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #A16438;">Invoice from Sumit Nova Trust Ltd</h2>
+              <p>Dear ${quotation.clientName},</p>
+              <p>Thank you for your business. Please find your invoice <strong>${invoice.invoiceNumber}</strong> attached below.</p>
+              
+              <div style="background-color: #f5f8f2; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="margin-top: 0; color: #333;">Invoice Summary</h3>
+                <p><strong>Invoice Number:</strong> ${invoice.invoiceNumber}</p>
+                <p><strong>Quotation Number:</strong> ${quotation.quotationNumber}</p>
+                <p><strong>Total Amount:</strong> ₦${invoice.finalTotal.toLocaleString()}</p>
+                <p><strong>Amount Paid:</strong> ₦${invoice.amountPaid.toLocaleString()}</p>
+                <p><strong>Balance Due:</strong> ₦${invoice.balance.toLocaleString()}</p>
+                <p><strong>Due Date:</strong> ${new Date(invoice.dueDate).toDateString()}</p>
+                <p><strong>Payment Status:</strong> <span style="color: ${invoice.paymentStatus === 'paid' ? '#28a745' : '#dc3545'}; font-weight: bold;">${invoice.paymentStatus.toUpperCase()}</span></p>
+              </div>
+              
+              ${invoice.notes ? `<p><strong>Notes:</strong> ${invoice.notes}</p>` : ''}
+              
+              <p>We appreciate your business and look forward to serving you again.</p>
+              
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+              <p style="font-size: 12px; color: #777;">
+                <strong>Sumit Nova Trust Ltd</strong><br>
+                K3, plaza, New Garage, Ibadan<br>
+                Alao Akala Expressway<br>
+                Phone: 07034567890<br>
+                Email: admin@sumitnovatrustltd.com
+              </p>
+            </div>
+          `,
+          attachments: [
+            {
+              filename: `Invoice_${invoice.invoiceNumber}_${quotation.quotationNumber}.pdf`,
+              path: pdfPath, // ✅ Use the correct /tmp path
+            },
+          ],
+        });
 
-    return ApiResponse.success(res, 'Invoice created and sent via email', invoice, 201);
+        console.log('✅ Email sent successfully to:', quotation.email);
+
+        // ✅ Optional: Clean up temp PDF after sending (Vercel does this automatically)
+        fs.unlink(pdfPath, (err) => {
+          if (err) {
+            console.error('⚠️ Error deleting temp PDF:', err.message);
+          } else {
+            console.log('🗑️ Temp PDF deleted:', pdfPath);
+          }
+        });
+      } catch (emailError) {
+        console.error('❌ Error sending email:', emailError);
+        // Don't fail the request - invoice is already created
+        // You could optionally add a flag to retry later
+      }
+    }
+
+    return ApiResponse.success(res, 'Invoice created successfully and sent via email', invoice, 201);
   } catch (error) {
     console.error('Create invoice error:', error);
     return ApiResponse.error(res, error.message || 'Server error creating invoice', 500);

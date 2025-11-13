@@ -211,15 +211,22 @@ exports.updateOrder = async (req, res) => {
 };
 
 // Add payment to order
+
+
+// Add payment to order
 exports.addPayment = async (req, res) => {
   try {
     const { id } = req.params;
     const { amount, paymentMethod, reference, notes, paymentDate } = req.body;
 
-    if (!amount || amount <= 0) {
-      return ApiResponse.error(res, 'Valid payment amount is required', 400);
+    // ✅ Ensure amount is numeric
+    const numericAmount = Number(amount);
+
+    if (isNaN(numericAmount) || numericAmount <= 0) {
+      return ApiResponse.error(res, 'Valid numeric payment amount is required', 400);
     }
 
+    // ✅ Find order owned by user
     const order = await Order.findOne({
       _id: id,
       userId: req.user._id
@@ -233,32 +240,62 @@ exports.addPayment = async (req, res) => {
       return ApiResponse.error(res, 'Cannot add payment to cancelled order', 400);
     }
 
-    // Check if payment exceeds balance
-    if (order.amountPaid + amount > order.totalAmount) {
-      return ApiResponse.error(res, 'Payment amount exceeds remaining balance', 400);
+    // ✅ Ensure totalAmount and amountPaid exist
+    order.totalAmount = Number(order.totalAmount) || 0;
+    order.amountPaid = Number(order.amountPaid) || 0;
+
+    // ✅ Prevent overpayment
+    if (order.amountPaid + numericAmount > order.totalAmount) {
+      const remaining = order.totalAmount - order.amountPaid;
+      return ApiResponse.error(
+        res,
+        `Payment exceeds remaining balance. Remaining: ₦${remaining}`,
+        400
+      );
     }
 
-    // Add payment to history
-    order.payments.push({
-      amount,
+    // ✅ Record payment details
+    const paymentRecord = {
+      amount: numericAmount,
       paymentMethod: paymentMethod || 'cash',
-      reference,
-      notes,
+      reference: reference || null,
+      notes: notes || null,
       paymentDate: paymentDate || new Date(),
       recordedBy: req.user.name || req.user.email
+    };
+
+    order.payments.push(paymentRecord);
+
+    // ✅ Update total paid
+    order.amountPaid += numericAmount;
+
+    // ✅ Automatically update payment status
+    if (order.amountPaid >= order.totalAmount) {
+      order.paymentStatus = 'paid';
+    } else if (order.amountPaid > 0) {
+      order.paymentStatus = 'partial';
+    } else {
+      order.paymentStatus = 'unpaid';
+    }
+
+    await order.save();
+
+    // ✅ Calculate remaining balance
+    const remainingBalance = order.totalAmount - order.amountPaid;
+
+    // ✅ Return response
+    return ApiResponse.success(res, 'Payment added successfully', {
+      order,
+      payment: paymentRecord,
+      remainingBalance
     });
 
-    // Update total amount paid
-    order.amountPaid += amount;
-
-    await order.save(); // Pre-save hook will update payment status
-
-    return ApiResponse.success(res, 'Payment added successfully', order);
   } catch (error) {
-    console.error('Add payment error:', error);
+    console.error('❌ Add payment error:', error);
     return ApiResponse.error(res, 'Server error adding payment', 500);
   }
 };
+
 
 // Update order status
 exports.updateOrderStatus = async (req, res) => {
