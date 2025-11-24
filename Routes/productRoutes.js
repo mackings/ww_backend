@@ -8,6 +8,15 @@ const { protect } = require('../Utils/auth');
 // Protect all routes
 router.use(protect);
 
+
+//Material Routes
+
+router.get('/materials', productController.getMaterials);
+router.post('/creatematerial', productController.createMaterial);
+router.post('/:materialId/add-types', productController.addMaterialTypes)
+router.post('/material/:materialId/calculate-cost', productController.calculateMaterialCost)
+
+
 router.get('/categories', productController.getCategories);
 
 // ✅ Product CRUD routes
@@ -16,5 +25,7 @@ router.get('/', productController.getAllProducts);
 router.get('/:id', productController.getProduct);
 router.put('/:id', upload.single("image"), productController.updateProduct);
 router.delete('/:id', productController.deleteProduct);
+
+
 
 module.exports = router;

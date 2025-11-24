@@ -1,5 +1,6 @@
 const Product = require('../../Models/productModel');
 const ImageKit = require("imagekit");
+const Material = require("../../Models/MaterialModel");
 
 const imagekit = new ImageKit({
   publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
@@ -256,6 +257,8 @@ exports.deleteProduct = async (req, res) => {
 // @route   GET /api/products/categories
 // @access  Private
 
+
+
 exports.getCategories = async (req, res) => {
   try {
     const categories = await Product.distinct('category', { userId: req.user.id });
@@ -269,6 +272,318 @@ exports.getCategories = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching categories'
+    });
+  }
+};
+
+
+
+exports.getMaterials = async (req, res) => {
+  try {
+    const materials = await Material.find();
+    res.status(200).json({
+      success: true,
+      data: materials
+    });
+  } catch (error) {
+    console.error("Get materials error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching materials"
+    });
+  }
+};
+
+
+
+
+
+// 🟢 Create a new material
+exports.createMaterial = async (req, res) => {
+  try {
+    const { 
+      name, 
+      unit, 
+      standardWidth,
+      standardLength,
+      standardUnit,
+      pricePerSqm,
+      sizes, 
+      foamDensities, 
+      foamThicknesses,
+      wasteThreshold
+    } = req.body;
+
+    // Validation
+    if (!name || !unit || !standardWidth || !standardLength || !standardUnit || !pricePerSqm) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, unit, standard dimensions, standard unit, and price per sqm are required"
+      });
+    }
+
+    const material = new Material({
+      name,
+      unit,
+      standardWidth,
+      standardLength,
+      standardUnit,
+      pricePerSqm,
+      sizes: sizes || [],
+      foamDensities: foamDensities || [],
+      foamThicknesses: foamThicknesses || [],
+      types: [],
+      wasteThreshold: wasteThreshold || 0.75
+    });
+
+    await material.save();
+
+    res.status(201).json({
+      success: true,
+      data: material
+    });
+
+  } catch (error) {
+    console.error("Create material error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error creating material"
+    });
+  }
+};
+
+
+
+
+exports.calculateMaterialCost = async (req, res) => {
+  try {
+    const { materialId } = req.params;
+    const { requiredWidth, requiredLength, requiredUnit, materialType } = req.body;
+
+    // Validation
+    if (!requiredWidth || !requiredLength || !requiredUnit) {
+      return res.status(400).json({
+        success: false,
+        message: "Required width, length, and unit are needed"
+      });
+    }
+
+    const material = await Material.findById(materialId);
+    if (!material) {
+      return res.status(404).json({
+        success: false,
+        message: "Material not found"
+      });
+    }
+
+    // Helper function to convert to meters
+    const convertToMeters = (value, unit) => {
+      switch (unit.toLowerCase()) {
+        case 'mm': return value / 1000;
+        case 'cm': return value / 100;
+        case 'm': return value;
+        case 'ft': return value * 0.3048;
+        case 'in': return value * 0.0254;
+        default: return value;
+      }
+    };
+
+    // Calculate project area
+    const widthM = convertToMeters(requiredWidth, requiredUnit);
+    const lengthM = convertToMeters(requiredLength, requiredUnit);
+    const projectAreaSqm = widthM * lengthM;
+
+    // Calculate standard material area
+    const standardWidthM = convertToMeters(material.standardWidth, material.standardUnit);
+    const standardLengthM = convertToMeters(material.standardLength, material.standardUnit);
+    const standardAreaSqm = standardWidthM * standardLengthM;
+
+    // Get price (check if specific type has custom price)
+    let pricePerSqm = material.pricePerSqm;
+    if (materialType && material.types.length > 0) {
+      const typeData = material.types.find(t => t.name === materialType);
+      if (typeData && typeData.pricePerSqm) {
+        pricePerSqm = typeData.pricePerSqm;
+      }
+    }
+
+    // Calculate minimum units needed
+    const fullUnits = Math.floor(projectAreaSqm / standardAreaSqm);
+    const remainder = projectAreaSqm - (fullUnits * standardAreaSqm);
+    const thresholdArea = standardAreaSqm * material.wasteThreshold;
+    const minimumUnits = remainder > thresholdArea ? fullUnits + 1 : fullUnits;
+
+    // Calculate costs
+    const totalBoardPrice = standardAreaSqm * pricePerSqm;
+    const projectCost = projectAreaSqm * pricePerSqm;
+
+    // Calculate waste info
+    const totalAreaUsed = minimumUnits * standardAreaSqm;
+    const wasteArea = totalAreaUsed - projectAreaSqm;
+    const wastePercentage = totalAreaUsed > 0 ? (wasteArea / totalAreaUsed) * 100 : 0;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        material: {
+          id: material._id,
+          name: material.name,
+          unit: material.unit,
+          standardWidth: material.standardWidth,
+          standardLength: material.standardLength,
+          standardUnit: material.standardUnit,
+        },
+        dimensions: {
+          requiredWidth,
+          requiredLength,
+          requiredUnit,
+          projectAreaSqm: projectAreaSqm.toFixed(4),
+          standardAreaSqm: standardAreaSqm.toFixed(4),
+        },
+        pricing: {
+          pricePerSqm,
+          totalBoardPrice: totalBoardPrice.toFixed(2),
+          projectCost: projectCost.toFixed(2),
+        },
+        quantity: {
+          minimumUnits,
+          wasteThreshold: material.wasteThreshold,
+        },
+        waste: {
+          totalAreaUsed: totalAreaUsed.toFixed(4),
+          wasteArea: wasteArea.toFixed(4),
+          wastePercentage: wastePercentage.toFixed(2),
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Calculate material cost error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error calculating material cost"
+    });
+  }
+};
+
+
+
+// 🟢 Update material specifications
+exports.updateMaterial = async (req, res) => {
+  try {
+    const { materialId } = req.params;
+    const updateData = req.body;
+
+    const material = await Material.findByIdAndUpdate(
+      materialId,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!material) {
+      return res.status(404).json({
+        success: false,
+        message: "Material not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: material
+    });
+
+  } catch (error) {
+    console.error("Update material error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating material"
+    });
+  }
+};
+
+
+
+
+// 🟢 Add types to an existing material
+exports.addMaterialTypes = async (req, res) => {
+  try {
+    const { materialId } = req.params;
+    const { types } = req.body;
+
+    if (!types || !Array.isArray(types)) {
+      return res.status(400).json({
+        success: false,
+        message: "Types must be an array"
+      });
+    }
+
+    const material = await Material.findById(materialId);
+    if (!material) {
+      return res.status(404).json({
+        success: false,
+        message: "Material not found"
+      });
+    }
+
+    // Add new types without duplicates
+    // types can be array of strings or objects with name and pricePerSqm
+    types.forEach(t => {
+      const typeName = typeof t === 'string' ? t : t.name;
+      const typePrice = typeof t === 'object' ? t.pricePerSqm : undefined;
+      
+      if (!material.types.some(mt => mt.name.toLowerCase() === typeName.toLowerCase())) {
+        material.types.push({ 
+          name: typeName,
+          pricePerSqm: typePrice
+        });
+      }
+    });
+
+    await material.save();
+
+    res.status(200).json({
+      success: true,
+      data: material
+    });
+
+  } catch (error) {
+    console.error("Add material types error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error adding material types"
+    });
+  }
+};
+
+
+
+
+// 🟢 Delete material
+
+
+exports.deleteMaterial = async (req, res) => {
+  try {
+    const { materialId } = req.params;
+
+    const material = await Material.findByIdAndDelete(materialId);
+
+    if (!material) {
+      return res.status(404).json({
+        success: false,
+        message: "Material not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Material deleted successfully"
+    });
+
+  } catch (error) {
+    console.error("Delete material error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error deleting material"
     });
   }
 };
