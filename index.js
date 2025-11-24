@@ -27,6 +27,7 @@ const staffRoutes = require("./Routes/staffRoutes");
 const salesRoutes = require("./Routes/salesRoutes");
 const invoicesRoutes = require("./Routes/invoicesRoutes");
 const orderRoutes = require("./Routes/orderRoutes");
+const OCost = require("./Routes/ocRoutes")
 
 
 app.use('/api/auth', authRoutes);
@@ -37,6 +38,7 @@ app.use('/api/staff', staffRoutes);
 app.use("/api/sales", salesRoutes);
 app.use('/api/invoices', invoicesRoutes);
 app.use('/api/orders',orderRoutes);
+app.use('/api/oc/', OCost);
 
 // Health check
 app.get('/health', (req, res) => {
