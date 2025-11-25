@@ -87,26 +87,36 @@ exports.getAllOrders = async (req, res) => {
       endDate,
       sortBy = 'createdAt',
       sortOrder = 'desc',
-      assignedTo, // NEW: Filter by assigned staff
-      showMyAssignments = false // NEW: For staff to see their assignments
+      assignedTo,
+      showMyAssignments = false
     } = req.query;
 
     // Build filter
     const filter = {};
 
-    // NEW: Handle staff viewing their own assignments
+    // CRITICAL FIX: Handle staff viewing their assignments vs admin viewing their orders
     if (showMyAssignments === 'true' || showMyAssignments === true) {
+      // Staff member viewing orders assigned to them
       filter.assignedTo = req.user._id;
     } else {
-      // Admin/Creator viewing their orders
-      filter.userId = req.user._id;
+      // Admin viewing their orders (orders they created)
+      // OR Staff viewing orders assigned to them when showMyAssignments is not explicitly set
       
-      // NEW: Filter by assigned staff
-      if (assignedTo) {
-        if (assignedTo === 'unassigned') {
-          filter.assignedTo = null;
-        } else {
-          filter.assignedTo = assignedTo;
+      // Check user role
+      if (req.user.role === 'staff') {
+        // If staff, show only assigned orders by default
+        filter.assignedTo = req.user._id;
+      } else {
+        // If admin, show orders they created
+        filter.userId = req.user._id;
+        
+        // Admin can filter by assigned staff
+        if (assignedTo) {
+          if (assignedTo === 'unassigned') {
+            filter.assignedTo = null;
+          } else {
+            filter.assignedTo = assignedTo;
+          }
         }
       }
     }
@@ -149,8 +159,8 @@ exports.getAllOrders = async (req, res) => {
         .limit(parseInt(limit))
         .populate('quotationId', 'quotationNumber status')
         .populate('invoiceId', 'invoiceNumber')
-        .populate('assignedTo', 'fullname email phoneNumber position role') // NEW
-        .populate('assignedBy', 'fullname email position') // NEW
+        .populate('assignedTo', 'fullname email phoneNumber position role')
+        .populate('assignedBy', 'fullname email position')
         .lean(),
       Order.countDocuments(filter)
     ]);
@@ -248,32 +258,34 @@ exports.addPayment = async (req, res) => {
     const { id } = req.params;
     const { amount, paymentMethod, reference, notes, paymentDate } = req.body;
 
-    // ✅ Ensure amount is numeric
     const numericAmount = Number(amount);
 
     if (isNaN(numericAmount) || numericAmount <= 0) {
       return ApiResponse.error(res, 'Valid numeric payment amount is required', 400);
     }
 
-    // ✅ Find order owned by user
+    // Allow access if:
+    // 1. User created the order (admin), OR
+    // 2. User is assigned to the order (staff)
     const order = await Order.findOne({
       _id: id,
-      userId: req.user._id
+      $or: [
+        { userId: req.user._id }, // Order creator
+        { assignedTo: req.user._id } // Assigned staff
+      ]
     });
 
     if (!order) {
-      return ApiResponse.error(res, 'Order not found', 404);
+      return ApiResponse.error(res, 'Order not found or unauthorized', 404);
     }
 
     if (order.status === 'cancelled') {
       return ApiResponse.error(res, 'Cannot add payment to cancelled order', 400);
     }
 
-    // ✅ Ensure totalAmount and amountPaid exist
     order.totalAmount = Number(order.totalAmount) || 0;
     order.amountPaid = Number(order.amountPaid) || 0;
 
-    // ✅ Prevent overpayment
     if (order.amountPaid + numericAmount > order.totalAmount) {
       const remaining = order.totalAmount - order.amountPaid;
       return ApiResponse.error(
@@ -283,22 +295,18 @@ exports.addPayment = async (req, res) => {
       );
     }
 
-    // ✅ Record payment details
     const paymentRecord = {
       amount: numericAmount,
       paymentMethod: paymentMethod || 'cash',
       reference: reference || null,
       notes: notes || null,
       paymentDate: paymentDate || new Date(),
-      recordedBy: req.user.name || req.user.email
+      recordedBy: req.user.fullname || req.user.email
     };
 
     order.payments.push(paymentRecord);
-
-    // ✅ Update total paid
     order.amountPaid += numericAmount;
 
-    // ✅ Automatically update payment status
     if (order.amountPaid >= order.totalAmount) {
       order.paymentStatus = 'paid';
     } else if (order.amountPaid > 0) {
@@ -309,10 +317,8 @@ exports.addPayment = async (req, res) => {
 
     await order.save();
 
-    // ✅ Calculate remaining balance
     const remainingBalance = order.totalAmount - order.amountPaid;
 
-    // ✅ Return response
     return ApiResponse.success(res, 'Payment added successfully', {
       order,
       payment: paymentRecord,
@@ -323,6 +329,20 @@ exports.addPayment = async (req, res) => {
     console.error('❌ Add payment error:', error);
     return ApiResponse.error(res, 'Server error adding payment', 500);
   }
+};
+
+
+// Helper function to check if user has access to order
+const checkOrderAccess = async (orderId, userId) => {
+  const order = await Order.findOne({
+    _id: orderId,
+    $or: [
+      { userId: userId }, // Order creator
+      { assignedTo: userId } // Assigned staff
+    ]
+  });
+  
+  return order;
 };
 
 
@@ -337,13 +357,19 @@ exports.updateOrderStatus = async (req, res) => {
       return ApiResponse.error(res, `Invalid status. Must be one of: ${validStatuses.join(', ')}`, 400);
     }
 
+    // Allow access if:
+    // 1. User created the order (admin), OR
+    // 2. User is assigned to the order (staff)
     const order = await Order.findOne({
       _id: id,
-      userId: req.user._id
+      $or: [
+        { userId: req.user._id }, // Order creator
+        { assignedTo: req.user._id } // Assigned staff
+      ]
     });
 
     if (!order) {
-      return ApiResponse.error(res, 'Order not found', 404);
+      return ApiResponse.error(res, 'Order not found or unauthorized', 404);
     }
 
     order.status = status;
