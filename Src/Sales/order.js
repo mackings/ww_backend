@@ -1,6 +1,7 @@
 const Order = require('../../Models/orderModel'); 
 const Quotation = require('../../Models/quotationModel'); 
 const ApiResponse = require('../../Utils/apiResponse');
+const User = require("../../Models/user")
 
 
 
@@ -70,6 +71,9 @@ exports.createOrderFromQuotation = async (req, res) => {
   }
 };
 
+
+
+
 // Get all orders
 exports.getAllOrders = async (req, res) => {
   try {
@@ -82,11 +86,30 @@ exports.getAllOrders = async (req, res) => {
       startDate,
       endDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      assignedTo, // NEW: Filter by assigned staff
+      showMyAssignments = false // NEW: For staff to see their assignments
     } = req.query;
 
     // Build filter
-    const filter = { userId: req.user._id };
+    const filter = {};
+
+    // NEW: Handle staff viewing their own assignments
+    if (showMyAssignments === 'true' || showMyAssignments === true) {
+      filter.assignedTo = req.user._id;
+    } else {
+      // Admin/Creator viewing their orders
+      filter.userId = req.user._id;
+      
+      // NEW: Filter by assigned staff
+      if (assignedTo) {
+        if (assignedTo === 'unassigned') {
+          filter.assignedTo = null;
+        } else {
+          filter.assignedTo = assignedTo;
+        }
+      }
+    }
 
     if (status) {
       filter.status = status;
@@ -126,6 +149,8 @@ exports.getAllOrders = async (req, res) => {
         .limit(parseInt(limit))
         .populate('quotationId', 'quotationNumber status')
         .populate('invoiceId', 'invoiceNumber')
+        .populate('assignedTo', 'fullname email phoneNumber position role') // NEW
+        .populate('assignedBy', 'fullname email position') // NEW
         .lean(),
       Order.countDocuments(filter)
     ]);
@@ -146,6 +171,10 @@ exports.getAllOrders = async (req, res) => {
     return ApiResponse.error(res, 'Server error fetching orders', 500);
   }
 };
+
+
+
+
 
 // Get single order
 exports.getOrder = async (req, res) => {
@@ -464,5 +493,137 @@ exports.getOrderReceipt = async (req, res) => {
   } catch (error) {
     console.error('Get order receipt error:', error);
     return ApiResponse.error(res, 'Server error fetching order receipt', 500);
+  }
+};
+
+
+
+
+
+exports.getAvailableStaff = async (req, res) => {
+  try {
+    // Get all staff created by this admin + the admin themselves
+    const staff = await User.find({
+      $or: [
+        { createdBy: req.user._id },
+        { _id: req.user._id }
+      ],
+      accessGranted: true
+    }).select('fullname email phoneNumber position role');
+
+    return ApiResponse.success(res, 'Staff fetched successfully', staff);
+  } catch (error) {
+    console.error('Get staff error:', error);
+    return ApiResponse.error(res, 'Server error fetching staff', 500);
+  }
+};
+
+
+
+exports.assignOrderToStaff = async (req, res) => {
+  try {
+    const { id } = req.params; // Order ID
+    const { staffId, notes } = req.body;
+
+    // Validate staffId
+    if (!staffId) {
+      return ApiResponse.error(res, 'Staff ID is required', 400);
+    }
+
+    // Find the order (only admin/creator can assign)
+    const order = await Order.findOne({
+      _id: id,
+      userId: req.user._id // Only the order creator can assign
+    });
+
+    if (!order) {
+      return ApiResponse.error(res, 'Order not found or unauthorized', 404);
+    }
+
+    // Verify the staff exists and belongs to the same user (created by admin)
+    const staff = await User.findOne({
+      _id: staffId,
+      $or: [
+        { createdBy: req.user._id }, // Staff created by this admin
+        { _id: req.user._id } // Or admin assigning to themselves
+      ],
+      accessGranted: true
+    });
+
+    if (!staff) {
+      return ApiResponse.error(res, 'Staff not found or does not have access', 404);
+    }
+
+    // Cannot assign cancelled orders
+    if (order.status === 'cancelled') {
+      return ApiResponse.error(res, 'Cannot assign cancelled orders', 400);
+    }
+
+    // Update assignment
+    order.assignedTo = staffId;
+    order.assignedBy = req.user._id;
+    order.assignedAt = new Date();
+    order.assignmentNotes = notes || null;
+
+    await order.save();
+
+    // Populate the assignment details for response
+    await order.populate([
+      { path: 'assignedTo', select: 'fullname email phoneNumber position role' },
+      { path: 'assignedBy', select: 'fullname email position' }
+    ]);
+
+    return ApiResponse.success(res, 'Order assigned successfully', {
+      order,
+      assignment: {
+        assignedTo: order.assignedTo,
+        assignedBy: order.assignedBy,
+        assignedAt: order.assignedAt,
+        notes: order.assignmentNotes
+      }
+    });
+
+  } catch (error) {
+    console.error('Assign order error:', error);
+    return ApiResponse.error(res, 'Server error assigning order', 500);
+  }
+};
+
+
+// ============================================
+// 3. NEW API - UNASSIGN/REMOVE STAFF FROM ORDER
+// ============================================
+
+exports.unassignOrderFromStaff = async (req, res) => {
+  try {
+    const { id } = req.params; // Order ID
+
+    // Find the order
+    const order = await Order.findOne({
+      _id: id,
+      userId: req.user._id // Only the order creator can unassign
+    });
+
+    if (!order) {
+      return ApiResponse.error(res, 'Order not found or unauthorized', 404);
+    }
+
+    if (!order.assignedTo) {
+      return ApiResponse.error(res, 'Order is not assigned to any staff', 400);
+    }
+
+    // Remove assignment
+    order.assignedTo = null;
+    order.assignedBy = null;
+    order.assignedAt = null;
+    order.assignmentNotes = null;
+
+    await order.save();
+
+    return ApiResponse.success(res, 'Order unassigned successfully', order);
+
+  } catch (error) {
+    console.error('Unassign order error:', error);
+    return ApiResponse.error(res, 'Server error unassigning order', 500);
   }
 };

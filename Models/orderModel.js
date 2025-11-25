@@ -165,6 +165,25 @@ const orderSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Invoice'
   },
+
+  assignedTo: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'User',
+  default: null
+},
+assignedBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'User',
+  default: null
+},
+assignedAt: {
+  type: Date,
+  default: null
+},
+assignmentNotes: {
+  type: String,
+  default: null
+},
   
   createdAt: {
     type: Date,
@@ -177,6 +196,9 @@ const orderSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+
+orderSchema.index({ assignedTo: 1 });
 
 // Generate order number before saving
 orderSchema.pre('save', async function(next) {

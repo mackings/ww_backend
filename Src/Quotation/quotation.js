@@ -7,6 +7,7 @@ const Product = require('../../Models/productModel');
 // @access  Private
 
 
+
 exports.createQuotation = async (req, res) => {
   try {
     const {
@@ -18,6 +19,11 @@ exports.createQuotation = async (req, res) => {
       description,
       items,
       service,
+      expectedDuration,      // ✅ NEW: { value: 24, unit: 'Day' }
+      expectedPeriod,        // ✅ NEW: Alternative format (for backward compatibility)
+      costPrice,             // ✅ NEW: Cost price from BOM
+      overheadCost,          // ✅ NEW: Overhead cost calculated in app
+      discount,              // Discount percentage
     } = req.body;
 
     // Validation
@@ -28,7 +34,7 @@ exports.createQuotation = async (req, res) => {
       });
     }
 
-    // Calculate totals with quantity (for reference/audit only)
+    // Calculate totals from items (for reference/audit)
     let totalCost = 0;
     let totalSellingPrice = 0;
 
@@ -38,8 +44,32 @@ exports.createQuotation = async (req, res) => {
       totalSellingPrice += (item.sellingPrice || 0) * itemQuantity;
     });
 
-    // Use service.totalPrice as finalTotal (already calculated in the app)
-    const finalTotal = service?.totalPrice || totalSellingPrice;
+    // ✅ Handle expected duration (support both formats)
+    let durationData = null;
+    if (expectedDuration) {
+      // Format 1: { value: 24, unit: 'Day' }
+      durationData = {
+        value: expectedDuration,
+        unit: expectedPeriod || 'Day'
+      };
+    } else if (typeof expectedDuration === 'object') {
+      // Format 2: Already an object
+      durationData = expectedDuration;
+    }
+
+    // ✅ Use provided cost breakdown or calculate from items
+    const quotationCostPrice = costPrice || totalCost;
+    const quotationOverheadCost = overheadCost || 0;
+    const quotationSellingPrice = quotationCostPrice + quotationOverheadCost;
+
+    // Calculate discount amount if discount percentage provided
+    let discountAmount = 0;
+    if (discount && discount > 0) {
+      discountAmount = (quotationSellingPrice * discount) / 100;
+    }
+
+    // Final total = selling price - discount
+    const finalTotal = service?.totalPrice || (quotationSellingPrice - discountAmount);
 
     const quotation = await Quotation.create({
       userId: req.user.id,
@@ -51,9 +81,14 @@ exports.createQuotation = async (req, res) => {
       description,
       items,
       service,
+      expectedDuration: durationData,  // ✅ NEW: Store duration data
+      costPrice: quotationCostPrice,   // ✅ NEW: Store cost price
+      overheadCost: quotationOverheadCost, // ✅ NEW: Store overhead
+      discount: discount || 0,
       totalCost,
-      totalSellingPrice,
-      finalTotal,  // Use service.totalPrice from the app
+      totalSellingPrice: quotationSellingPrice,
+      discountAmount,
+      finalTotal,
       status: 'draft'
     });
 
@@ -71,6 +106,73 @@ exports.createQuotation = async (req, res) => {
     });
   }
 };
+
+
+
+// exports.createQuotation = async (req, res) => {
+//   try {
+//     const {
+//       clientName,
+//       clientAddress,
+//       nearestBusStop,
+//       phoneNumber,
+//       email,
+//       description,
+//       items,
+//       service,
+//     } = req.body;
+
+//     // Validation
+//     if (!clientName || !items || items.length === 0) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Please provide client name and at least one item'
+//       });
+//     }
+
+//     // Calculate totals with quantity (for reference/audit only)
+//     let totalCost = 0;
+//     let totalSellingPrice = 0;
+
+//     items.forEach(item => {
+//       const itemQuantity = item.quantity || 1;
+//       totalCost += (item.costPrice || 0) * itemQuantity;
+//       totalSellingPrice += (item.sellingPrice || 0) * itemQuantity;
+//     });
+
+//     // Use service.totalPrice as finalTotal (already calculated in the app)
+//     const finalTotal = service?.totalPrice || totalSellingPrice;
+
+//     const quotation = await Quotation.create({
+//       userId: req.user.id,
+//       clientName,
+//       clientAddress,
+//       nearestBusStop,
+//       phoneNumber,
+//       email,
+//       description,
+//       items,
+//       service,
+//       totalCost,
+//       totalSellingPrice,
+//       finalTotal,  // Use service.totalPrice from the app
+//       status: 'draft'
+//     });
+
+//     res.status(201).json({
+//       success: true,
+//       message: 'Quotation created successfully',
+//       data: quotation
+//     });
+//   } catch (error) {
+//     console.error('Create quotation error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Error creating quotation',
+//       error: error.message
+//     });
+//   }
+// };
 
 
 // @desc    Get all quotations
