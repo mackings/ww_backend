@@ -5,9 +5,29 @@ const ApiResponse = require('../../Utils/apiResponse');
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
+const multer = require("multer");
 
 const { sendEmail } = require('../../Utils/emailUtil');
 const generateInvoicePDF = require("../../Utils/GenPDF");
+
+const storage = multer.diskStorage({
+  destination: '/tmp', // Use /tmp for Vercel
+  filename: (req, file, cb) => {
+    cb(null, `invoice_${Date.now()}${path.extname(file.originalname)}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'), false);
+    }
+  },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+});
 
 
 
@@ -28,15 +48,9 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     }
 
     // Check if quotation is approved or sent
-  if (quotation.status !== 'approved' && quotation.status !== 'sent' && quotation.status !== 'draft') {
-  return ApiResponse.error(res, 'Only approved, sent, or draft quotations can be converted to invoices', 400);
-}
-
-    // Check if invoice already exists for this quotation
-    // const existingInvoice = await Invoice.findOne({ quotationId });
-    // if (existingInvoice) {
-    //   return ApiResponse.error(res, 'Invoice already exists for this quotation', 400);
-    // }
+    if (quotation.status !== 'approved' && quotation.status !== 'sent' && quotation.status !== 'draft') {
+      return ApiResponse.error(res, 'Only approved, sent, or draft quotations can be converted to invoices', 400);
+    }
 
     // Create invoice
     const invoice = new Invoice({
@@ -67,19 +81,26 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     quotation.status = 'sent';
     await quotation.save();
 
-    // ✅ Generate PDF invoice - Use /tmp directory for Vercel
-    let pdfPath;
-    try {
-      // Let generateInvoicePDF create the file in /tmp automatically
-      pdfPath = `/tmp/invoice_${invoice._id}.pdf`;
-      await generateInvoicePDF(invoice, pdfPath);
-      console.log('✅ PDF generated successfully at:', pdfPath);
-    } catch (pdfError) {
-      console.error('❌ PDF generation failed:', pdfError);
-      // Continue without PDF - don't fail the entire request
+    // ✅ Check if PDF was uploaded from mobile
+    let pdfPath = null;
+    const uploadedPdf = req.file; // Multer stores uploaded file in req.file
+
+    if (uploadedPdf) {
+      // Use the uploaded PDF from mobile
+      pdfPath = uploadedPdf.path;
+      console.log('✅ Using PDF from mobile:', pdfPath);
+    } else {
+      // Fallback: Generate PDF on backend if no PDF was uploaded
+      try {
+        pdfPath = `/tmp/invoice_${invoice._id}.pdf`;
+        await generateInvoicePDF(invoice, pdfPath);
+        console.log('✅ PDF generated on backend at:', pdfPath);
+      } catch (pdfError) {
+        console.error('❌ PDF generation failed:', pdfError);
+      }
     }
 
-    // ✅ Send PDF invoice via email (only if PDF was generated successfully)
+    // ✅ Send PDF invoice via email (only if PDF exists)
     if (pdfPath && quotation.email) {
       try {
         console.log('📧 Sending email to:', quotation.email);
@@ -122,14 +143,14 @@ exports.createInvoiceFromQuotation = async (req, res) => {
           attachments: [
             {
               filename: `Invoice_${invoice.invoiceNumber}_${quotation.quotationNumber}.pdf`,
-              path: pdfPath, // ✅ Use the correct /tmp path
+              path: pdfPath,
             },
           ],
         });
 
         console.log('✅ Email sent successfully to:', quotation.email);
 
-        // ✅ Optional: Clean up temp PDF after sending (Vercel does this automatically)
+        // ✅ Clean up temp PDF after sending
         fs.unlink(pdfPath, (err) => {
           if (err) {
             console.error('⚠️ Error deleting temp PDF:', err.message);
@@ -139,8 +160,6 @@ exports.createInvoiceFromQuotation = async (req, res) => {
         });
       } catch (emailError) {
         console.error('❌ Error sending email:', emailError);
-        // Don't fail the request - invoice is already created
-        // You could optionally add a flag to retry later
       }
     }
 
@@ -150,6 +169,9 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     return ApiResponse.error(res, error.message || 'Server error creating invoice', 500);
   }
 };
+
+// Export multer middleware for route
+exports.uploadPdf = upload.single('invoicePdf');
 
 
 

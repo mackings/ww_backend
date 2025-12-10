@@ -8,14 +8,15 @@ const {
   updateInvoicePayment,
   updateInvoiceStatus,
   deleteInvoice,
-  getInvoiceStats
+  getInvoiceStats,
+  uploadPdf
 } = require("../Src/Sales/invoice");
 
 
 const router = express.Router();
 
 // Invoice routes
-router.post('/create', protect, createInvoiceFromQuotation);
+router.post('/create', protect, uploadPdf, createInvoiceFromQuotation);
 router.get('/invoices', protect, getAllInvoices);
 router.get('/invoices/stats', protect, getInvoiceStats);
 router.get('/invoices/:id', protect, getInvoice);

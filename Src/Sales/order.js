@@ -371,7 +371,7 @@ exports.updateOrderStatus = async (req, res) => {
     if (!order) {
       return ApiResponse.error(res, 'Order not found or unauthorized', 404);
     }
-
+    
     order.status = status;
     await order.save();
 

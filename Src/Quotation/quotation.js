@@ -89,7 +89,7 @@ exports.createQuotation = async (req, res) => {
       totalSellingPrice: quotationSellingPrice,
       discountAmount,
       finalTotal,
-      status: 'draft'
+      status: 'sent'
     });
 
     res.status(201).json({
