@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 
-
 const userSchema = new mongoose.Schema({
   fullname: {
     type: String,
@@ -25,24 +24,57 @@ const userSchema = new mongoose.Schema({
     minlength: 8,
     select: false,
   },
-  position: {
-    type: String,
-    required: [true, 'Position is required'],
-    trim: true,
+  
+  // Multiple Companies Support
+  companies: [{
+    name: {
+      type: String,
+      trim: true,
+    },
+    email: {
+      type: String,
+      lowercase: true,
+      trim: true,
+    },
+    phoneNumber: {
+      type: String,
+      trim: true,
+    },
+    address: {
+      type: String,
+      trim: true,
+    },
+    role: {
+      type: String,
+      enum: ['owner', 'admin', 'staff'],
+      default: 'staff',
+    },
+    position: {
+      type: String,
+      trim: true,
+      default: 'Staff',
+    },
+    invitedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    accessGranted: {
+      type: Boolean,
+      default: true,
+    },
+    joinedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
+  
+  // Active company index (which company user is currently working in)
+  activeCompanyIndex: {
+    type: Number,
+    default: 0,
   },
-  role: {
-    type: String,
-    enum: ['admin', 'staff'],
-    default: 'admin',
-  },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-  },
-  accessGranted: {
-    type: Boolean,
-    default: true,
-  },
+  
+  // Verification & Reset
   isVerified: {
     type: Boolean,
     default: false,
@@ -50,5 +82,19 @@ const userSchema = new mongoose.Schema({
   resetPasswordToken: String,
   resetPasswordExpires: Date,
 }, { timestamps: true });
+
+// Helper method to get active company
+userSchema.methods.getActiveCompany = function() {
+  if (this.companies && this.companies.length > 0) {
+    return this.companies[this.activeCompanyIndex] || this.companies[0];
+  }
+  return null;
+};
+
+// Helper method to check if user is owner/admin in active company
+userSchema.methods.canManageStaff = function() {
+  const activeCompany = this.getActiveCompany();
+  return activeCompany && ['owner', 'admin'].includes(activeCompany.role);
+};
 
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);
