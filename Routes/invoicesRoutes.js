@@ -1,5 +1,7 @@
 const express = require("express");
 const { protect } = require("../Utils/auth");
+const  {getActiveCompany} = require('../Utils/ActiveCompany');
+
 
 const {
   createInvoiceFromQuotation,
@@ -14,6 +16,9 @@ const {
 
 
 const router = express.Router();
+
+router.use(protect);
+router.use(getActiveCompany);
 
 // Invoice routes
 router.post('/create', protect, uploadPdf, createInvoiceFromQuotation);

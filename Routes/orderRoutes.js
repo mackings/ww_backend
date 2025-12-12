@@ -1,5 +1,6 @@
 const express = require("express");
 const { protect } = require("../Utils/auth");
+const  {getActiveCompany} = require('../Utils/ActiveCompany');
 
 
 const {
@@ -18,6 +19,9 @@ const {
 } = require("../Src/Sales/order"); 
 
 const router = express.Router();
+
+router.use(protect);
+router.use(getActiveCompany);
 
 // Order routes
 router.post('/create', protect, createOrderFromQuotation);

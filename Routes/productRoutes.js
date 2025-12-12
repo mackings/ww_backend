@@ -4,10 +4,11 @@ const productController = require('../Src/Quotation/product');
 const multer = require("multer");
 const upload = multer(); // in-memory file upload
 const { protect } = require('../Utils/auth');
+const  {getActiveCompany} = require('../Utils/ActiveCompany');
 
 // Protect all routes
 router.use(protect);
-
+router.use(getActiveCompany);
 
 //Material Routes
 

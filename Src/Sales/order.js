@@ -37,6 +37,7 @@ exports.createOrderFromQuotation = async (req, res) => {
 
     const order = new Order({
       userId: req.user._id,
+      companyName: req.companyName,
       quotationId: quotation._id,
       quotationNumber: quotation.quotationNumber,
       clientName: quotation.clientName,
@@ -91,25 +92,17 @@ exports.getAllOrders = async (req, res) => {
       showMyAssignments = false
     } = req.query;
 
-    // Build filter
-    const filter = {};
+    // Build filter - ✅ CHANGED: Filter by company instead of userId
+    const filter = { companyName: req.companyName }; // ✅ This is the key change
 
-    // CRITICAL FIX: Handle staff viewing their assignments vs admin viewing their orders
+    // Handle staff viewing their assignments
     if (showMyAssignments === 'true' || showMyAssignments === true) {
-      // Staff member viewing orders assigned to them
       filter.assignedTo = req.user._id;
     } else {
-      // Admin viewing their orders (orders they created)
-      // OR Staff viewing orders assigned to them when showMyAssignments is not explicitly set
-      
       // Check user role
       if (req.user.role === 'staff') {
-        // If staff, show only assigned orders by default
         filter.assignedTo = req.user._id;
       } else {
-        // If admin, show orders they created
-        filter.userId = req.user._id;
-        
         // Admin can filter by assigned staff
         if (assignedTo) {
           if (assignedTo === 'unassigned') {

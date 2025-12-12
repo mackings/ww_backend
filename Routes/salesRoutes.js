@@ -1,6 +1,7 @@
 const express = require("express");
 const { getClients, getSalesAnalytics, getInventoryStatus } = require("../Src/Sales/sales");
 const { protect } = require("../Utils/auth");
+const  {getActiveCompany} = require('../Utils/ActiveCompany');
 
 
 const {
@@ -16,6 +17,10 @@ const {
 } = require("../Src/Sales/order"); 
 
 const router = express.Router();
+
+
+router.use(protect);
+router.use(getActiveCompany);
 
 // Sales routes
 router.get('/get-clients', protect, getClients);

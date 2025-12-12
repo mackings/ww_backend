@@ -15,6 +15,7 @@ exports.createOverheadCost = async (req, res) => {
 
     // Create cost item
     const overhead = await OverheadCost.create({
+      companyName: req.companyName,  // ✅ NEW
       category,
       description,
       period,
@@ -41,7 +42,8 @@ exports.createOverheadCost = async (req, res) => {
 // 🟡 Fetch all overhead costs for a user
 exports.getOverheadCosts = async (req, res) => {
   try {
-    const overheads = await OverheadCost.find({ user: req.user.id })
+    // ✅ Filter by company
+    const overheads = await OverheadCost.find({ companyName: req.companyName })
       .sort({ createdAt: -1 });
 
     res.status(200).json({

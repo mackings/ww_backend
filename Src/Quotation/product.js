@@ -51,20 +51,10 @@ exports.createProduct = async (req, res) => {
       });
     }
 
-    // ✅ Auto-generate product ID (e.g. PRD-ABC123)
     const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     const productId = `PRD-${randomCode}`;
 
-    // ✅ Ensure uniqueness
-    const existing = await Product.findOne({ productId });
-    if (existing) {
-      // regenerate if collision (rare)
-      productId = `PRD-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    }
-
     let uploadedImage = null;
-
-    // ✅ Upload image from Multer buffer if provided
     if (req.file) {
       const uploadResponse = await imagekit.upload({
         file: req.file.buffer.toString("base64"),
@@ -74,9 +64,10 @@ exports.createProduct = async (req, res) => {
       uploadedImage = uploadResponse.url;
     }
 
-    // ✅ Create product
+    // ✅ Create with company name
     const product = await Product.create({
       userId: req.user.id,
+      companyName: req.companyName,  // ✅ NEW
       name,
       productId,
       category,
@@ -100,29 +91,21 @@ exports.createProduct = async (req, res) => {
   }
 };
 
-
-// @desc    Get all products
-// @route   GET /api/products
-// @access  Private
-
-
 exports.getAllProducts = async (req, res) => {
   try {
     const { category, subCategory, search, page = 1, limit = 20 } = req.query;
 
-    const query = { userId: req.user.id };
+    // ✅ Filter by company, not just userId
+    const query = { companyName: req.companyName };
 
-    // Filter by category
     if (category) {
       query.category = category;
     }
 
-    // Filter by subcategory
     if (subCategory) {
       query.subCategory = subCategory;
     }
 
-    // Search by name or product ID
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -301,7 +284,7 @@ exports.getCategories = async (req, res) => {
     console.error('Get categories error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching categories'
+      message: 'Error fetching categories.'
     });
   }
 };
@@ -333,24 +316,6 @@ exports.getMaterials = async (req, res) => {
     });
   }
 };
-
-// exports.getMaterials = async (req, res) => {
-//   try {
-//     const materials = await Material.find();
-//     res.status(200).json({
-//       success: true,
-//       data: materials
-//     });
-//   } catch (error) {
-//     console.error("Get materials error:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Error fetching materials"
-//     });
-//   }
-// };
-
-
 
 
 
@@ -392,8 +357,12 @@ exports.createMaterial = async (req, res) => {
       }
     }
 
+
+
+
     const material = new Material({
       name,
+       companyName: req.companyName, 
       category: category.toUpperCase(),
       standardWidth,
       standardLength,
@@ -410,6 +379,7 @@ exports.createMaterial = async (req, res) => {
       notes
     });
 
+
     await material.save();
 
     res.status(201).json({
@@ -425,64 +395,6 @@ exports.createMaterial = async (req, res) => {
     });
   }
 };
-
-
-
-// 🟢 Create a new material
-// exports.createMaterial = async (req, res) => {
-//   try {
-//     const { 
-//       name, 
-//       unit, 
-//       standardWidth,
-//       standardLength,
-//       standardUnit,
-//       pricePerSqm,
-//       sizes, 
-//       foamDensities, 
-//       foamThicknesses,
-//       wasteThreshold
-//     } = req.body;
-
-//     // Validation
-//     if (!name || !unit || !standardWidth || !standardLength || !standardUnit || !pricePerSqm) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Name, unit, standard dimensions, standard unit, and price per sqm are required"
-//       });
-//     }
-
-//     const material = new Material({
-//       name,
-//       unit,
-//       standardWidth,
-//       standardLength,
-//       standardUnit,
-//       pricePerSqm,
-//       sizes: sizes || [],
-//       foamDensities: foamDensities || [],
-//       foamThicknesses: foamThicknesses || [],
-//       types: [],
-//       wasteThreshold: wasteThreshold || 0.75
-//     });
-
-//     await material.save();
-
-//     res.status(201).json({
-//       success: true,
-//       data: material
-//     });
-
-//   } catch (error) {
-//     console.error("Create material error:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Error creating material"
-//     });
-//   }
-// };
-
-
 
 
 
@@ -678,117 +590,6 @@ exports.calculateMaterialCost = async (req, res) => {
 
 
 
-// exports.calculateMaterialCost = async (req, res) => {
-//   try {
-//     const { materialId } = req.params;
-//     const { requiredWidth, requiredLength, requiredUnit, materialType } = req.body;
-
-//     if (!requiredWidth || !requiredLength || !requiredUnit) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Required width, length, and unit are needed"
-//       });
-//     }
-
-//     const material = await Material.findById(materialId);
-//     if (!material) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Material not found"
-//       });
-//     }
-
-//     /* ✅ Unit conversion */
-//     const convertToMeters = (value, unit) => {
-//       switch (unit.toLowerCase()) {
-//         case 'mm': return value / 1000;
-//         case 'cm': return value / 100;
-//         case 'm': return value;
-//         case 'ft': return value * 0.3048;
-//         case 'in': return value * 0.0254;
-//         default: return value;
-//       }
-//     };
-
-//     const widthM = convertToMeters(requiredWidth, requiredUnit);
-//     const lengthM = convertToMeters(requiredLength, requiredUnit);
-//     const projectAreaSqm = widthM * lengthM;
-
-//     const standardWidthM = convertToMeters(material.standardWidth, material.standardUnit);
-//     const standardLengthM = convertToMeters(material.standardLength, material.standardUnit);
-//     const standardAreaSqm = standardWidthM * standardLengthM;
-
-//     /* ✅ Price override per type */
-//     let pricePerSqm = material.pricePerSqm;
-//     if (materialType && material.types?.length) {
-//       const typeData = material.types.find(t => t.name === materialType);
-//       if (typeData?.pricePerSqm) pricePerSqm = typeData.pricePerSqm;
-//     }
-
-//     /* ✅ ✅ EXCEL-CORRECT UNIT COUNT */
-//     let minimumUnits = Math.ceil(projectAreaSqm / standardAreaSqm);
-
-//     /* ✅ Apply waste threshold logic */
-//     const extraWasteLimit = standardAreaSqm * material.wasteThreshold;
-//     const rawRemainder = projectAreaSqm % standardAreaSqm;
-
-//     if (rawRemainder > extraWasteLimit) {
-//       minimumUnits += 1;
-//     }
-
-//     /* ✅ ✅ EXCEL-CORRECT PRICING */
-//     const pricePerFullUnit = standardAreaSqm * pricePerSqm;
-//     const totalMaterialCost = minimumUnits * pricePerFullUnit;
-
-//     /* ✅ Waste */
-//     const totalAreaUsed = minimumUnits * standardAreaSqm;
-//     const wasteArea = totalAreaUsed - projectAreaSqm;
-//     const wastePercentage = (wasteArea / totalAreaUsed) * 100;
-
-//     return res.status(200).json({
-//       success: true,
-//       data: {
-//         material: {
-//           id: material._id,
-//           name: material.name,
-//           unit: material.unit
-//         },
-//         dimensions: {
-//           requiredWidth,
-//           requiredLength,
-//           requiredUnit,
-//           projectAreaSqm: projectAreaSqm.toFixed(4),
-//           standardAreaSqm: standardAreaSqm.toFixed(4)
-//         },
-//         pricing: {
-//           pricePerSqm,
-//           pricePerFullUnit: pricePerFullUnit.toFixed(2),
-//           totalMaterialCost: totalMaterialCost.toFixed(2)
-//         },
-//         quantity: {
-//           minimumUnits,
-//           wasteThreshold: material.wasteThreshold
-//         },
-//         waste: {
-//           totalAreaUsed: totalAreaUsed.toFixed(4),
-//           wasteArea: wasteArea.toFixed(4),
-//           wastePercentage: wastePercentage.toFixed(2)
-//         }
-//       }
-//     });
-
-//   } catch (error) {
-//     console.error("Calculate material cost error:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Error calculating material cost"
-//     });
-//   }
-// };
-
-
-
-
 // 🟢 Update material specifications
 exports.updateMaterial = async (req, res) => {
   try {
@@ -879,61 +680,6 @@ exports.addMaterialTypes = async (req, res) => {
 };
 
 
-// 🟢 Add types to an existing material
-// exports.addMaterialTypes = async (req, res) => {
-//   try {
-//     const { materialId } = req.params;
-//     const { types } = req.body;
-
-//     if (!types || !Array.isArray(types)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Types must be an array"
-//       });
-//     }
-
-//     const material = await Material.findById(materialId);
-//     if (!material) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Material not found"
-//       });
-//     }
-
-//     // Add new types without duplicates
-//     // types can be array of strings or objects with name and pricePerSqm
-//     types.forEach(t => {
-//       const typeName = typeof t === 'string' ? t : t.name;
-//       const typePrice = typeof t === 'object' ? t.pricePerSqm : undefined;
-      
-//       if (!material.types.some(mt => mt.name.toLowerCase() === typeName.toLowerCase())) {
-//         material.types.push({ 
-//           name: typeName,
-//           pricePerSqm: typePrice
-//         });
-//       }
-//     });
-
-//     await material.save();
-
-//     res.status(200).json({
-//       success: true,
-//       data: material
-//     });
-
-//   } catch (error) {
-//     console.error("Add material types error:", error);
-//     res.status(500).json({
-//       success: false,
-//       message: "Error adding material types"
-//     });
-//   }
-// };
-
-
-
-
-// 🟢 Delete material
 
 
 exports.deleteMaterial = async (req, res) => {

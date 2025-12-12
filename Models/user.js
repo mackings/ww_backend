@@ -68,7 +68,7 @@ const userSchema = new mongoose.Schema({
     },
   }],
   
-  // Active company index (which company user is currently working in)
+
   activeCompanyIndex: {
     type: Number,
     default: 0,
@@ -96,5 +96,7 @@ userSchema.methods.canManageStaff = function() {
   const activeCompany = this.getActiveCompany();
   return activeCompany && ['owner', 'admin'].includes(activeCompany.role);
 };
+
+
 
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);

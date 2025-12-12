@@ -10,9 +10,8 @@ console.log('Is function?', typeof Quotation.find);
 
 exports.getClients = async (req, res) => {
   try {
-    // Find all quotations belonging to the logged-in user
-    const quotations = await Quotation.find({ userId: req.user._id })
-
+    // ✅ CHANGED: Filter by company instead of userId
+    const quotations = await Quotation.find({ companyName: req.companyName })
       .select('clientName phoneNumber email clientAddress nearestBusStop')
       .lean();
 
@@ -57,10 +56,11 @@ exports.getSalesAnalytics = async (req, res) => {
       endDate 
     } = req.query;
 
-    const userId = req.user._id;
+    // ✅ CHANGED: Filter by company instead of userId
+    const companyName = req.companyName;
 
     // Build date filter
-    const dateFilter = { userId };
+    const dateFilter = { companyName }; // ✅ Changed from userId
     if (startDate || endDate) {
       dateFilter.orderDate = {};
       if (startDate) dateFilter.orderDate.$gte = new Date(startDate);
@@ -123,7 +123,7 @@ exports.getSalesAnalytics = async (req, res) => {
     ]);
 
     // Calculate percentage changes (compare with previous period)
-    let previousPeriodFilter = { userId };
+    let previousPeriodFilter = { companyName }; // ✅ Changed from userId
     if (dateFilter.orderDate) {
       const currentStart = dateFilter.orderDate.$gte;
       const currentEnd = dateFilter.orderDate.$lte || new Date();
@@ -336,11 +336,12 @@ exports.getSalesAnalytics = async (req, res) => {
 // Get inventory status from orders
 exports.getInventoryStatus = async (req, res) => {
   try {
-    const userId = req.user._id;
+    // ✅ CHANGED: Filter by company instead of userId
+    const companyName = req.companyName;
 
     // This is a simplified version - you might want to connect to actual inventory
     const inventoryData = await Order.aggregate([
-      { $match: { userId } },
+      { $match: { companyName } }, // ✅ Changed from userId
       { $unwind: '$items' },
       {
         $group: {
@@ -368,4 +369,3 @@ exports.getInventoryStatus = async (req, res) => {
     return ApiResponse.error(res, 'Server error fetching inventory status', 500);
   }
 };
-

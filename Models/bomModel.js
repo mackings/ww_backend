@@ -73,6 +73,13 @@ if (mongoose.models.BOM) {
       required: true,
       index: true
     },
+
+  companyName: {  // ✅ NEW
+    type: String,
+    required: true,
+    index: true
+  },
+  
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Product',

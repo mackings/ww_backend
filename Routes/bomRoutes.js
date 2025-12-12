@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const bomController = require('../Src/Quotation/bom');
 const { protect } = require('../Utils/auth');
+const  {getActiveCompany} = require('../Utils/ActiveCompany');
 
 // All routes require authentication
 router.use(protect);
+router.use(getActiveCompany);
 
 // BOM CRUD
 router.post('/', bomController.createBOM);

@@ -8,6 +8,12 @@ const overheadCostSchema = new mongoose.Schema(
       required: true,
     },
 
+ companyName: {  // ✅ NEW
+    type: String,
+    required: true,
+    index: true
+  },
+
     category: {
       type: String,
       enum: ["Depreciation", "Others", "Rent", "Salaries"],

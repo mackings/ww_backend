@@ -39,6 +39,14 @@ const orderSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+
+    companyName: {  // ✅ NEW
+    type: String,
+    required: true,
+    index: true
+  },
+
+  
   quotationId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Quotation',

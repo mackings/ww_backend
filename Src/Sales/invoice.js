@@ -49,12 +49,13 @@ exports.createInvoiceFromQuotation = async (req, res) => {
 
     // Check if quotation is approved or sent
     if (quotation.status !== 'approved' && quotation.status !== 'sent' && quotation.status !== 'draft') {
-      return ApiResponse.error(res, 'Only approved, sent, or draft quotations can be converted to invoices', 400);
+      return ApiResponse.error(res, 'Only approved , sent, or draft quotations can be converted to invoices', 400);
     }
 
     // Create invoice
     const invoice = new Invoice({
       userId: req.user._id,
+      companyName: req.companyName,
       quotationId: quotation._id,
       quotationNumber: quotation.quotationNumber,
       clientName: quotation.clientName,
@@ -191,8 +192,8 @@ exports.getAllInvoices = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build filter
-    const filter = { userId: req.user._id };
+    // Build filter - ✅ CHANGED: Filter by company instead of userId
+    const filter = { companyName: req.companyName }; // ✅ This is the key change
 
     if (status) {
       filter.status = status;
@@ -245,6 +246,8 @@ exports.getAllInvoices = async (req, res) => {
     return ApiResponse.error(res, 'Server error fetching invoices', 500);
   }
 };
+
+
 
 // Get single invoice
 exports.getInvoice = async (req, res) => {

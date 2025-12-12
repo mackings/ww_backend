@@ -2,10 +2,12 @@ const express = require('express');
 const router = express.Router();
 const quotationController = require('../Src/Quotation/quotation');
 const { protect } = require('../Utils/auth');
+const  {getActiveCompany} = require('../Utils/ActiveCompany');
 
 
 // All routes require authentication
 router.use(protect);
+router.use(getActiveCompany);
 
 // Quotation CRUD
 router.post('/', quotationController.createQuotation);

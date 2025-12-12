@@ -73,6 +73,7 @@ exports.createQuotation = async (req, res) => {
 
     const quotation = await Quotation.create({
       userId: req.user.id,
+      companyName: req.companyName,
       clientName,
       clientAddress,
       nearestBusStop,
@@ -109,71 +110,6 @@ exports.createQuotation = async (req, res) => {
 
 
 
-// exports.createQuotation = async (req, res) => {
-//   try {
-//     const {
-//       clientName,
-//       clientAddress,
-//       nearestBusStop,
-//       phoneNumber,
-//       email,
-//       description,
-//       items,
-//       service,
-//     } = req.body;
-
-//     // Validation
-//     if (!clientName || !items || items.length === 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Please provide client name and at least one item'
-//       });
-//     }
-
-//     // Calculate totals with quantity (for reference/audit only)
-//     let totalCost = 0;
-//     let totalSellingPrice = 0;
-
-//     items.forEach(item => {
-//       const itemQuantity = item.quantity || 1;
-//       totalCost += (item.costPrice || 0) * itemQuantity;
-//       totalSellingPrice += (item.sellingPrice || 0) * itemQuantity;
-//     });
-
-//     // Use service.totalPrice as finalTotal (already calculated in the app)
-//     const finalTotal = service?.totalPrice || totalSellingPrice;
-
-//     const quotation = await Quotation.create({
-//       userId: req.user.id,
-//       clientName,
-//       clientAddress,
-//       nearestBusStop,
-//       phoneNumber,
-//       email,
-//       description,
-//       items,
-//       service,
-//       totalCost,
-//       totalSellingPrice,
-//       finalTotal,  // Use service.totalPrice from the app
-//       status: 'draft'
-//     });
-
-//     res.status(201).json({
-//       success: true,
-//       message: 'Quotation created successfully',
-//       data: quotation
-//     });
-//   } catch (error) {
-//     console.error('Create quotation error:', error);
-//     res.status(500).json({
-//       success: false,
-//       message: 'Error creating quotation',
-//       error: error.message
-//     });
-//   }
-// };
-
 
 // @desc    Get all quotations
 // @route   GET /api/quotations
@@ -182,14 +118,13 @@ exports.getAllQuotations = async (req, res) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
 
-    const query = { userId: req.user.id };
+    // ✅ Filter by company
+    const query = { companyName: req.companyName };
 
-    // Filter by status
     if (status) {
       query.status = status;
     }
 
-    // Search by client name or BOM number
     if (search) {
       query.$or = [
         { clientName: { $regex: search, $options: 'i' } },
@@ -222,6 +157,8 @@ exports.getAllQuotations = async (req, res) => {
     });
   }
 };
+
+
 
 // @desc    Get single quotation
 // @route   GET /api/quotations/:id
