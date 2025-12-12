@@ -75,6 +75,7 @@ exports.createOrderFromQuotation = async (req, res) => {
 
 
 
+
 // Get all orders
 exports.getAllOrders = async (req, res) => {
   try {
@@ -517,28 +518,64 @@ exports.getOrderReceipt = async (req, res) => {
 
 
 
-
-
+/**
+ * @desc    Get Available Staff (from active company)
+ * @route   GET /api/orders/staff-available
+ * @access  Private
+ */
 exports.getAvailableStaff = async (req, res) => {
   try {
-    // Get all staff created by this admin + the admin themselves
-    const staff = await User.find({
-      $or: [
-        { createdBy: req.user._id },
-        { _id: req.user._id }
-      ],
-      accessGranted: true
-    }).select('fullname email phoneNumber position role');
+    const currentUser = await User.findById(req.user._id);
+    
+    // Get active company
+    const activeCompany = currentUser.companies && currentUser.companies.length > 0
+      ? currentUser.companies[currentUser.activeCompanyIndex || 0]
+      : null;
 
-    return ApiResponse.success(res, 'Staff fetched successfully', staff);
+    if (!activeCompany || !activeCompany.name) {
+      return ApiResponse.error(res, 'No active company found', 404);
+    }
+
+    const companyName = activeCompany.name;
+
+    // ✅ Find all users who belong to this company with access granted
+    const allUsers = await User.find({
+      'companies.name': companyName,
+    }).select('fullname email phoneNumber companies');
+
+    // ✅ Extract staff with their company-specific role and position
+    const staffList = [];
+
+    allUsers.forEach(user => {
+      const companyData = user.companies.find(c => c.name === companyName);
+      
+      // Only include if they have access and are not the current user (optional)
+      if (companyData && companyData.accessGranted) {
+        staffList.push({
+          _id: user._id,
+          id: user._id, // Some frontends expect 'id'
+          fullname: user.fullname,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          role: companyData.role,
+          position: companyData.position,
+          accessGranted: companyData.accessGranted,
+        });
+      }
+    });
+
+    return ApiResponse.success(res, 'Staff fetched successfully', staffList);
   } catch (error) {
     console.error('Get staff error:', error);
     return ApiResponse.error(res, 'Server error fetching staff', 500);
   }
 };
 
-
-
+/**
+ * @desc    Assign Order to Staff
+ * @route   POST /api/orders/:id/assign
+ * @access  Private
+ */
 exports.assignOrderToStaff = async (req, res) => {
   try {
     const { id } = req.params; // Order ID
@@ -549,28 +586,50 @@ exports.assignOrderToStaff = async (req, res) => {
       return ApiResponse.error(res, 'Staff ID is required', 400);
     }
 
-    // Find the order (only admin/creator can assign)
+    const currentUser = await User.findById(req.user._id);
+    
+    // Get active company
+    const activeCompany = currentUser.companies && currentUser.companies.length > 0
+      ? currentUser.companies[currentUser.activeCompanyIndex || 0]
+      : null;
+
+    if (!activeCompany || !activeCompany.name) {
+      return ApiResponse.error(res, 'No active company found', 404);
+    }
+
+    // ✅ Check if current user can assign (owner or admin in this company)
+    if (!['owner', 'admin'].includes(activeCompany.role)) {
+      return ApiResponse.error(res, 'You do not have permission to assign orders', 403);
+    }
+
+    // ✅ Find the order (filter by company)
     const order = await Order.findOne({
       _id: id,
-      userId: req.user._id // Only the order creator can assign
+      companyName: activeCompany.name // ✅ Ensure order belongs to company
     });
 
     if (!order) {
       return ApiResponse.error(res, 'Order not found or unauthorized', 404);
     }
 
-    // Verify the staff exists and belongs to the same user (created by admin)
-    const staff = await User.findOne({
-      _id: staffId,
-      $or: [
-        { createdBy: req.user._id }, // Staff created by this admin
-        { _id: req.user._id } // Or admin assigning to themselves
-      ],
-      accessGranted: true
-    });
+    // ✅ Verify the staff exists and belongs to the same company
+    const staffUser = await User.findById(staffId);
 
-    if (!staff) {
-      return ApiResponse.error(res, 'Staff not found or does not have access', 404);
+    if (!staffUser) {
+      return ApiResponse.error(res, 'Staff not found', 404);
+    }
+
+    // ✅ Check if staff belongs to this company
+    const staffCompanyData = staffUser.companies.find(
+      c => c.name === activeCompany.name
+    );
+
+    if (!staffCompanyData) {
+      return ApiResponse.error(res, 'Staff is not part of this company', 404);
+    }
+
+    if (!staffCompanyData.accessGranted) {
+      return ApiResponse.error(res, 'Staff does not have access to this company', 403);
     }
 
     // Cannot assign cancelled orders
@@ -578,7 +637,7 @@ exports.assignOrderToStaff = async (req, res) => {
       return ApiResponse.error(res, 'Cannot assign cancelled orders', 400);
     }
 
-    // Update assignment
+    // ✅ Update assignment
     order.assignedTo = staffId;
     order.assignedBy = req.user._id;
     order.assignedAt = new Date();
@@ -586,16 +645,26 @@ exports.assignOrderToStaff = async (req, res) => {
 
     await order.save();
 
-    // Populate the assignment details for response
+    // ✅ Populate the assignment details for response
     await order.populate([
-      { path: 'assignedTo', select: 'fullname email phoneNumber position role' },
-      { path: 'assignedBy', select: 'fullname email position' }
+      { path: 'assignedTo', select: 'fullname email phoneNumber' },
+      { path: 'assignedBy', select: 'fullname email' }
     ]);
+
+    // ✅ Get the staff's role and position in this company
+    const assignedToData = {
+      _id: staffUser._id,
+      fullname: staffUser.fullname,
+      email: staffUser.email,
+      phoneNumber: staffUser.phoneNumber,
+      role: staffCompanyData.role,
+      position: staffCompanyData.position,
+    };
 
     return ApiResponse.success(res, 'Order assigned successfully', {
       order,
       assignment: {
-        assignedTo: order.assignedTo,
+        assignedTo: assignedToData,
         assignedBy: order.assignedBy,
         assignedAt: order.assignedAt,
         notes: order.assignmentNotes
@@ -608,19 +677,35 @@ exports.assignOrderToStaff = async (req, res) => {
   }
 };
 
-
-// ============================================
-// 3. NEW API - UNASSIGN/REMOVE STAFF FROM ORDER
-// ============================================
-
+/**
+ * @desc    Unassign/Remove Staff from Order
+ * @route   DELETE /api/orders/:id/unassign
+ * @access  Private
+ */
 exports.unassignOrderFromStaff = async (req, res) => {
   try {
     const { id } = req.params; // Order ID
 
-    // Find the order
+    const currentUser = await User.findById(req.user._id);
+    
+    // Get active company
+    const activeCompany = currentUser.companies && currentUser.companies.length > 0
+      ? currentUser.companies[currentUser.activeCompanyIndex || 0]
+      : null;
+
+    if (!activeCompany || !activeCompany.name) {
+      return ApiResponse.error(res, 'No active company found', 404);
+    }
+
+    // ✅ Check if current user can unassign (owner or admin)
+    if (!['owner', 'admin'].includes(activeCompany.role)) {
+      return ApiResponse.error(res, 'You do not have permission to unassign orders', 403);
+    }
+
+    // ✅ Find the order (filter by company)
     const order = await Order.findOne({
       _id: id,
-      userId: req.user._id // Only the order creator can unassign
+      companyName: activeCompany.name // ✅ Ensure order belongs to company
     });
 
     if (!order) {
@@ -631,7 +716,7 @@ exports.unassignOrderFromStaff = async (req, res) => {
       return ApiResponse.error(res, 'Order is not assigned to any staff', 400);
     }
 
-    // Remove assignment
+    // ✅ Remove assignment
     order.assignedTo = null;
     order.assignedBy = null;
     order.assignedAt = null;
