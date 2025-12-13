@@ -1,6 +1,8 @@
 const Quotation = require('../../Models/quotationModel');
 const BOM = require('../../Models/bomModel');
 const Product = require('../../Models/productModel');
+const { notifyCompany } = require('../../Utils/NotHelper');
+const User = require("../../Models/user");
 
 // @desc    Create new quotation
 // @route   POST /api/quotations
@@ -19,11 +21,11 @@ exports.createQuotation = async (req, res) => {
       description,
       items,
       service,
-      expectedDuration,      // ✅ NEW: { value: 24, unit: 'Day' }
-      expectedPeriod,        // ✅ NEW: Alternative format (for backward compatibility)
-      costPrice,             // ✅ NEW: Cost price from BOM
-      overheadCost,          // ✅ NEW: Overhead cost calculated in app
-      discount,              // Discount percentage
+      expectedDuration,
+      expectedPeriod,
+      costPrice,
+      overheadCost,
+      discount,
     } = req.body;
 
     // Validation
@@ -34,7 +36,7 @@ exports.createQuotation = async (req, res) => {
       });
     }
 
-    // Calculate totals from items (for reference/audit)
+    // Calculate totals from items
     let totalCost = 0;
     let totalSellingPrice = 0;
 
@@ -44,36 +46,34 @@ exports.createQuotation = async (req, res) => {
       totalSellingPrice += (item.sellingPrice || 0) * itemQuantity;
     });
 
-    // ✅ Handle expected duration (support both formats)
+    // Handle expected duration
     let durationData = null;
     if (expectedDuration) {
-      // Format 1: { value: 24, unit: 'Day' }
       durationData = {
         value: expectedDuration,
         unit: expectedPeriod || 'Day'
       };
     } else if (typeof expectedDuration === 'object') {
-      // Format 2: Already an object
       durationData = expectedDuration;
     }
 
-    // ✅ Use provided cost breakdown or calculate from items
+    // Use provided cost breakdown or calculate from items
     const quotationCostPrice = costPrice || totalCost;
     const quotationOverheadCost = overheadCost || 0;
     const quotationSellingPrice = quotationCostPrice + quotationOverheadCost;
 
-    // Calculate discount amount if discount percentage provided
+    // Calculate discount amount
     let discountAmount = 0;
     if (discount && discount > 0) {
       discountAmount = (quotationSellingPrice * discount) / 100;
     }
 
-    // Final total = selling price - discount
+    // Final total
     const finalTotal = service?.totalPrice || (quotationSellingPrice - discountAmount);
 
     const quotation = await Quotation.create({
       userId: req.user.id,
-      companyName: req.companyName,
+      companyName: req.companyName, // ✅ Add company name
       clientName,
       clientAddress,
       nearestBusStop,
@@ -82,15 +82,35 @@ exports.createQuotation = async (req, res) => {
       description,
       items,
       service,
-      expectedDuration: durationData,  // ✅ NEW: Store duration data
-      costPrice: quotationCostPrice,   // ✅ NEW: Store cost price
-      overheadCost: quotationOverheadCost, // ✅ NEW: Store overhead
+      expectedDuration: durationData,
+      costPrice: quotationCostPrice,
+      overheadCost: quotationOverheadCost,
       discount: discount || 0,
       totalCost,
       totalSellingPrice: quotationSellingPrice,
       discountAmount,
       finalTotal,
       status: 'sent'
+    });
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'quotation_created',
+      title: 'New Quotation Created',
+      message: `${currentUser.fullname} created a quotation for ${clientName}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        quotationId: quotation._id,
+        quotationNumber: quotation.quotationNumber,
+        clientName,
+        finalTotal: finalTotal.toFixed(2)
+      },
+      excludeUserId: req.user.id
     });
 
     res.status(201).json({
@@ -108,17 +128,16 @@ exports.createQuotation = async (req, res) => {
   }
 };
 
-
-
-
-// @desc    Get all quotations
-// @route   GET /api/quotations
-// @access  Private
+/**
+ * @desc    Get all quotations
+ * @route   GET /api/quotations
+ * @access  Private
+ */
 exports.getAllQuotations = async (req, res) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
 
-    // ✅ Filter by company
+    // Filter by company
     const query = { companyName: req.companyName };
 
     if (status) {
@@ -158,16 +177,16 @@ exports.getAllQuotations = async (req, res) => {
   }
 };
 
-
-
-// @desc    Get single quotation
-// @route   GET /api/quotations/:id
-// @access  Private
+/**
+ * @desc    Get single quotation
+ * @route   GET /api/quotations/:id
+ * @access  Private
+ */
 exports.getQuotation = async (req, res) => {
   try {
     const quotation = await Quotation.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!quotation) {
@@ -190,14 +209,16 @@ exports.getQuotation = async (req, res) => {
   }
 };
 
-// @desc    Update quotation
-// @route   PUT /api/quotations/:id
-// @access  Private
+/**
+ * @desc    Update quotation
+ * @route   PUT /api/quotations/:id
+ * @access  Private
+ */
 exports.updateQuotation = async (req, res) => {
   try {
     const quotation = await Quotation.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!quotation) {
@@ -219,6 +240,11 @@ exports.updateQuotation = async (req, res) => {
       discount,
       status
     } = req.body;
+
+    // Store old values
+    const oldClientName = quotation.clientName;
+    const oldStatus = quotation.status;
+    const oldTotal = quotation.finalTotal;
 
     // Recalculate totals if items changed
     if (items) {
@@ -253,6 +279,28 @@ exports.updateQuotation = async (req, res) => {
 
     await quotation.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'quotation_updated',
+      title: 'Quotation Updated',
+      message: `${currentUser.fullname} updated quotation for ${quotation.clientName}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        quotationId: quotation._id,
+        quotationNumber: quotation.quotationNumber,
+        clientName: quotation.clientName,
+        oldStatus,
+        newStatus: quotation.status,
+        finalTotal: quotation.finalTotal.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(200).json({
       success: true,
       message: 'Quotation updated successfully',
@@ -267,16 +315,16 @@ exports.updateQuotation = async (req, res) => {
   }
 };
 
-
-
-// @desc    Delete quotation
-// @route   DELETE /api/quotations/:id
-// @access  Private
+/**
+ * @desc    Delete quotation
+ * @route   DELETE /api/quotations/:id
+ * @access  Private
+ */
 exports.deleteQuotation = async (req, res) => {
   try {
-    const quotation = await Quotation.findOneAndDelete({
+    const quotation = await Quotation.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!quotation) {
@@ -285,6 +333,32 @@ exports.deleteQuotation = async (req, res) => {
         message: 'Quotation not found'
       });
     }
+
+    // Store info before deletion
+    const clientName = quotation.clientName;
+    const quotationNumber = quotation.quotationNumber;
+    const finalTotal = quotation.finalTotal;
+
+    await quotation.deleteOne();
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'quotation_deleted',
+      title: 'Quotation Deleted',
+      message: `${currentUser.fullname} deleted quotation for ${clientName}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        quotationNumber,
+        clientName,
+        finalTotal: finalTotal.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
 
     res.status(200).json({
       success: true,
@@ -299,14 +373,16 @@ exports.deleteQuotation = async (req, res) => {
   }
 };
 
-// @desc    Add item to quotation
-// @route   POST /api/quotations/:id/items
-// @access  Private
+/**
+ * @desc    Add item to quotation
+ * @route   POST /api/quotations/:id/items
+ * @access  Private
+ */
 exports.addItemToQuotation = async (req, res) => {
   try {
     const quotation = await Quotation.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!quotation) {
@@ -344,6 +420,27 @@ exports.addItemToQuotation = async (req, res) => {
 
     await quotation.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'quotation_updated',
+      title: 'Item Added to Quotation',
+      message: `${currentUser.fullname} added item to quotation for ${quotation.clientName}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        quotationId: quotation._id,
+        quotationNumber: quotation.quotationNumber,
+        clientName: quotation.clientName,
+        itemName: item.name || 'New Item',
+        newTotal: quotation.finalTotal.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(200).json({
       success: true,
       message: 'Item added successfully',
@@ -358,14 +455,16 @@ exports.addItemToQuotation = async (req, res) => {
   }
 };
 
-// @desc    Delete item from quotation
-// @route   DELETE /api/quotations/:id/items/:itemId
-// @access  Private
+/**
+ * @desc    Delete item from quotation
+ * @route   DELETE /api/quotations/:id/items/:itemId
+ * @access  Private
+ */
 exports.deleteItemFromQuotation = async (req, res) => {
   try {
     const quotation = await Quotation.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!quotation) {
@@ -374,6 +473,11 @@ exports.deleteItemFromQuotation = async (req, res) => {
         message: 'Quotation not found'
       });
     }
+
+    // Find item before deletion
+    const itemToDelete = quotation.items.find(
+      item => item._id.toString() === req.params.itemId
+    );
 
     quotation.items = quotation.items.filter(
       item => item._id.toString() !== req.params.itemId
@@ -396,6 +500,27 @@ exports.deleteItemFromQuotation = async (req, res) => {
 
     await quotation.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'quotation_updated',
+      title: 'Item Removed from Quotation',
+      message: `${currentUser.fullname} removed item from quotation for ${quotation.clientName}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        quotationId: quotation._id,
+        quotationNumber: quotation.quotationNumber,
+        clientName: quotation.clientName,
+        itemName: itemToDelete?.name || 'Item',
+        newTotal: quotation.finalTotal.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(200).json({
       success: true,
       message: 'Item deleted successfully',
@@ -410,14 +535,16 @@ exports.deleteItemFromQuotation = async (req, res) => {
   }
 };
 
-// @desc    Generate PDF for quotation
-// @route   GET /api/quotations/:id/pdf
-// @access  Private
+/**
+ * @desc    Generate PDF for quotation
+ * @route   GET /api/quotations/:id/pdf
+ * @access  Private
+ */
 exports.generateQuotationPDF = async (req, res) => {
   try {
     const quotation = await Quotation.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!quotation) {
@@ -428,7 +555,7 @@ exports.generateQuotationPDF = async (req, res) => {
     }
 
     // TODO: Implement PDF generation using libraries like pdfkit or puppeteer
-    // For now, return quotation data
+
     res.status(200).json({
       success: true,
       message: 'PDF generation endpoint',

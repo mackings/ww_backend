@@ -66,6 +66,18 @@ const userSchema = new mongoose.Schema({
       type: Date,
       default: Date.now,
     },
+
+    permissions: {
+      quotation: { type: Boolean, default: false },
+      sales: { type: Boolean, default: false },
+      order: { type: Boolean, default: false },
+      database: { type: Boolean, default: false },
+      receipts: { type: Boolean, default: false },
+      backupAlerts: { type: Boolean, default: false },
+      invoice: { type: Boolean, default: false },
+      products: { type: Boolean, default: false },
+      boms: { type: Boolean, default: false },
+    },
   }],
   
 

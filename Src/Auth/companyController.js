@@ -3,7 +3,7 @@ const Company = require('../../Models/companyModel');
 const UserCompany = require('../../Models/userCompanyModel');
 const User = require('../../Models/user');
 const ApiResponse = require('../../Utils/apiResponse');
-
+const { notifyCompany, notifyUser } = require('../../Utils/NotHelper');
 
 
 
@@ -21,12 +21,12 @@ exports.createCompany = async (req, res) => {
       email: email || req.user.email,
       phoneNumber,
       address,
-      owner: req.user._id, // Changed from req.user.id
+      owner: req.user._id,
     });
 
     // Link user to company as owner
     await UserCompany.create({
-      user: req.user._id, // Changed from req.user.id
+      user: req.user._id,
       company: company._id,
       role: 'owner',
       position: 'Owner',
@@ -34,8 +34,20 @@ exports.createCompany = async (req, res) => {
     });
 
     // Set as last active company
-    await User.findByIdAndUpdate(req.user._id, { // Changed from req.user.id
+    await User.findByIdAndUpdate(req.user._id, {
       lastActiveCompany: company._id,
+    });
+
+    // ✅ Notify user about company creation
+    await notifyUser({
+      userId: req.user._id,
+      companyName: company.name,
+      type: 'company_created',
+      title: 'Company Created',
+      message: `You successfully created ${company.name}`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: { companyId: company._id }
     });
 
     return ApiResponse.success(
@@ -57,7 +69,7 @@ exports.createCompany = async (req, res) => {
 exports.getMyCompanies = async (req, res) => {
   try {
     const userCompanies = await UserCompany.find({
-      user: req.user._id, // Changed from req.user.id
+      user: req.user._id,
       accessGranted: true,
     }).populate('company');
 
@@ -90,13 +102,19 @@ exports.inviteStaff = async (req, res) => {
 
     // Verify user is owner or admin of this company
     const userCompany = await UserCompany.findOne({
-      user: req.user._id, // Changed from req.user.id
+      user: req.user._id,
       company: companyId,
       role: { $in: ['owner', 'admin'] },
     });
 
     if (!userCompany) {
       return ApiResponse.error(res, 'You do not have permission to invite staff', 403);
+    }
+
+    // Get company details
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return ApiResponse.error(res, 'Company not found', 404);
     }
 
     // Find the staff user by email
@@ -123,7 +141,40 @@ exports.inviteStaff = async (req, res) => {
       role,
       position,
       accessGranted: true,
-      invitedBy: req.user._id, // Changed from req.user.id
+      invitedBy: req.user._id,
+    });
+
+    // ✅ Notify the invited staff
+    await notifyUser({
+      userId: staffUser._id,
+      companyName: company.name,
+      type: 'staff_added',
+      title: 'Added to Company',
+      message: `You have been added to ${company.name} as ${position} by ${req.user.fullname}`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: { 
+        companyId: company._id,
+        role,
+        position 
+      }
+    });
+
+    // ✅ Notify all existing company members
+    await notifyCompany({
+      companyName: company.name,
+      type: 'staff_added',
+      title: 'New Staff Member',
+      message: `${req.user.fullname} added ${staffUser.fullname} as ${position}`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: {
+        staffName: staffUser.fullname,
+        staffEmail: staffUser.email,
+        role,
+        position
+      },
+      excludeUserId: req.user._id // Don't notify the person who did the action
     });
 
     return ApiResponse.success(res, 'Staff invited successfully', {
@@ -143,7 +194,7 @@ exports.getCompanyStaff = async (req, res) => {
 
     // Verify user has access to this company
     const userCompany = await UserCompany.findOne({
-      user: req.user._id, // Changed from req.user.id
+      user: req.user._id,
       company: companyId,
     });
 
@@ -180,7 +231,7 @@ exports.revokeStaffAccess = async (req, res) => {
 
     // Verify user is owner or admin of this company
     const userCompany = await UserCompany.findOne({
-      user: req.user._id, // Changed from req.user.id
+      user: req.user._id,
       company: companyId,
       role: { $in: ['owner', 'admin'] },
     });
@@ -189,11 +240,17 @@ exports.revokeStaffAccess = async (req, res) => {
       return ApiResponse.error(res, 'You do not have permission to revoke access', 403);
     }
 
+    // Get company details
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return ApiResponse.error(res, 'Company not found', 404);
+    }
+
     // Cannot revoke owner access
     const targetUserCompany = await UserCompany.findOne({
       user: userId,
       company: companyId,
-    });
+    }).populate('user', 'fullname email');
 
     if (!targetUserCompany) {
       return ApiResponse.error(res, 'Staff not found in this company', 404);
@@ -206,6 +263,33 @@ exports.revokeStaffAccess = async (req, res) => {
     // Revoke access (soft delete)
     targetUserCompany.accessGranted = false;
     await targetUserCompany.save();
+
+    // ✅ Notify the affected staff
+    await notifyUser({
+      userId: targetUserCompany.user._id,
+      companyName: company.name,
+      type: 'access_revoked',
+      title: 'Access Revoked',
+      message: `Your access to ${company.name} has been revoked by ${req.user.fullname}`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: { companyId: company._id }
+    });
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: company.name,
+      type: 'access_revoked',
+      title: 'Staff Access Revoked',
+      message: `${req.user.fullname} revoked access for ${targetUserCompany.user.fullname}`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: {
+        staffName: targetUserCompany.user.fullname,
+        staffEmail: targetUserCompany.user.email
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Staff access revoked successfully');
   } catch (error) {
@@ -220,7 +304,7 @@ exports.restoreStaffAccess = async (req, res) => {
 
     // Verify user is owner or admin of this company
     const userCompany = await UserCompany.findOne({
-      user: req.user._id, // Changed from req.user.id
+      user: req.user._id,
       company: companyId,
       role: { $in: ['owner', 'admin'] },
     });
@@ -229,11 +313,17 @@ exports.restoreStaffAccess = async (req, res) => {
       return ApiResponse.error(res, 'You do not have permission to restore access', 403);
     }
 
+    // Get company details
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return ApiResponse.error(res, 'Company not found', 404);
+    }
+
     // Find staff
     const targetUserCompany = await UserCompany.findOne({
       user: userId,
       company: companyId,
-    });
+    }).populate('user', 'fullname email');
 
     if (!targetUserCompany) {
       return ApiResponse.error(res, 'Staff not found in this company', 404);
@@ -242,6 +332,33 @@ exports.restoreStaffAccess = async (req, res) => {
     // Restore access
     targetUserCompany.accessGranted = true;
     await targetUserCompany.save();
+
+    // ✅ Notify the staff
+    await notifyUser({
+      userId: targetUserCompany.user._id,
+      companyName: company.name,
+      type: 'access_granted',
+      title: 'Access Granted',
+      message: `Your access to ${company.name} has been restored by ${req.user.fullname}`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: { companyId: company._id }
+    });
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: company.name,
+      type: 'access_granted',
+      title: 'Staff Access Restored',
+      message: `${req.user.fullname} restored access for ${targetUserCompany.user.fullname}`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: {
+        staffName: targetUserCompany.user.fullname,
+        staffEmail: targetUserCompany.user.email
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Staff access restored successfully');
   } catch (error) {
@@ -256,7 +373,7 @@ exports.removeStaff = async (req, res) => {
 
     // Verify user is owner or admin of this company
     const userCompany = await UserCompany.findOne({
-      user: req.user._id, // Changed from req.user.id
+      user: req.user._id,
       company: companyId,
       role: { $in: ['owner', 'admin'] },
     });
@@ -265,11 +382,17 @@ exports.removeStaff = async (req, res) => {
       return ApiResponse.error(res, 'You do not have permission to remove staff', 403);
     }
 
+    // Get company details
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return ApiResponse.error(res, 'Company not found', 404);
+    }
+
     // Cannot remove owner
     const targetUserCompany = await UserCompany.findOne({
       user: userId,
       company: companyId,
-    });
+    }).populate('user', 'fullname email');
 
     if (!targetUserCompany) {
       return ApiResponse.error(res, 'Staff not found in this company', 404);
@@ -279,8 +402,39 @@ exports.removeStaff = async (req, res) => {
       return ApiResponse.error(res, 'Cannot remove company owner', 400);
     }
 
+    // Store staff info before deletion
+    const staffName = targetUserCompany.user.fullname;
+    const staffEmail = targetUserCompany.user.email;
+
     // Remove staff
     await UserCompany.deleteOne({ _id: targetUserCompany._id });
+
+    // ✅ Notify the removed staff
+    await notifyUser({
+      userId: targetUserCompany.user._id,
+      companyName: company.name,
+      type: 'staff_removed',
+      title: 'Removed from Company',
+      message: `You have been removed from ${company.name} by ${req.user.fullname}`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: { companyId: company._id }
+    });
+
+    // ✅ Notify remaining company members
+    await notifyCompany({
+      companyName: company.name,
+      type: 'staff_removed',
+      title: 'Staff Removed',
+      message: `${req.user.fullname} removed ${staffName} from the company`,
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      metadata: {
+        staffName,
+        staffEmail
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Staff removed successfully');
   } catch (error) {

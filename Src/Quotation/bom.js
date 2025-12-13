@@ -1,5 +1,6 @@
 const BOM = require('../..//Models/bomModel');
 const Product = require('../../Models/productModel');
+const { notifyCompany } = require('../../Utils/NotHelper');
 
 // @desc    Create new BOM
 // @route   POST /api/boms
@@ -17,26 +18,26 @@ exports.createBOM = async (req, res) => {
       });
     }
 
-    // ✅ Find product using productId (custom ID like PRD-XXXX)
+    // Find product using productId (custom ID like PRD-XXXX)
     const product = await Product.findOne({
       productId: productId,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!product) {
       return res.status(404).json({
         success: false,
-        message: 'Product not found for this user'
+        message: 'Product not found for this company'
       });
     }
 
-    // ✅ Auto-assign product name as material name
+    // Auto-assign product name as material name
     const updatedMaterials = materials.map(mat => ({
       ...mat,
-      name: product.name // 🪵 automatically use product name
+      name: product.name
     }));
 
-    // ✅ Calculate material and cost totals
+    // Calculate material and cost totals
     let materialsCost = 0;
     updatedMaterials.forEach(material => {
       const squareMeter = material.squareMeter || 0;
@@ -54,9 +55,10 @@ exports.createBOM = async (req, res) => {
 
     const totalCost = materialsCost + additionalCostsTotal;
 
-    // ✅ Create BOM linked to the Product
+    // Create BOM linked to the Product
     const bom = await BOM.create({
       userId: req.user.id,
+      companyName: req.companyName, // ✅ Add company name
       productId: product._id,
       productDetails: {
         name: product.name,
@@ -74,6 +76,26 @@ exports.createBOM = async (req, res) => {
       totalCost: Number(totalCost.toFixed(2))
     });
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'bom_created',
+      title: 'New BOM Created',
+      message: `${currentUser.fullname} created a new BOM: ${name} for ${product.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        bomId: bom._id,
+        bomName: name,
+        productName: product.name,
+        totalCost: totalCost.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(201).json({
       success: true,
       message: 'BOM created successfully',
@@ -89,120 +111,17 @@ exports.createBOM = async (req, res) => {
   }
 };
 
-
-
-
-
-// @desc    Add additional cost to BOM
-// @route   POST /api/boms/:id/additional-costs
-// @access  Private
-exports.addAdditionalCost = async (req, res) => {
-  try {
-    const bom = await BOM.findOne({
-      _id: req.params.id,
-      userId: req.user.id
-    });
-
-    if (!bom) {
-      return res.status(404).json({
-        success: false,
-        message: 'BOM not found'
-      });
-    }
-
-    const { name, amount, description } = req.body;
-
-    if (!name || amount === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide cost name and amount'
-      });
-    }
-
-    bom.additionalCosts.push({ name, amount, description });
-
-    // Recalculate additional costs total
-    let additionalCostsTotal = 0;
-    bom.additionalCosts.forEach(cost => {
-      additionalCostsTotal += cost.amount || 0;
-    });
-
-    bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
-    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
-
-    await bom.save();
-
-    res.status(200).json({
-      success: true,
-      message: 'Additional cost added successfully',
-      data: bom
-    });
-  } catch (error) {
-    console.error('Add additional cost error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error adding additional cost'
-    });
-  }
-};
-
-// @desc    Delete additional cost from BOM
-// @route   DELETE /api/boms/:id/additional-costs/:costId
-// @access  Private
-
-exports.deleteAdditionalCost = async (req, res) => {
-  try {
-    const bom = await BOM.findOne({
-      _id: req.params.id,
-      userId: req.user.id
-    });
-
-    if (!bom) {
-      return res.status(404).json({
-        success: false,
-        message: 'BOM not found'
-      });
-    }
-
-    bom.additionalCosts = bom.additionalCosts.filter(
-      cost => cost._id.toString() !== req.params.costId
-    );
-
-    // Recalculate additional costs total
-    let additionalCostsTotal = 0;
-    bom.additionalCosts.forEach(cost => {
-      additionalCostsTotal += cost.amount || 0;
-    });
-
-    bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
-    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
-
-    await bom.save();
-
-    res.status(200).json({
-      success: true,
-      message: 'Additional cost deleted successfully',
-      data: bom
-    });
-  } catch (error) {
-    console.error('Delete additional cost error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error deleting additional cost'
-    });
-  }
-};
-
-
-// @desc    Get all BOMs
-// @route   GET /api/boms
-// @access  Private
+/**
+ * @desc    Get all BOMs
+ * @route   GET /api/boms
+ * @access  Private
+ */
 exports.getAllBOMs = async (req, res) => {
   try {
     const { search, page = 1, limit = 20 } = req.query;
-    const query = { userId: req.user.id };
+    const query = { companyName: req.companyName }; // ✅ Filter by company
 
-    // 🔍 Optional search filter by name or BOM number
+    // Optional search filter
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -210,7 +129,7 @@ exports.getAllBOMs = async (req, res) => {
       ];
     }
 
-    // 🔹 Fetch BOMs with product populated
+    // Fetch BOMs with product populated
     const boms = await BOM.find(query)
       .populate({
         path: "productId",
@@ -222,7 +141,7 @@ exports.getAllBOMs = async (req, res) => {
 
     const total = await BOM.countDocuments(query);
 
-    // 🔹 Structure each BOM properly for uniform response
+    // Structure each BOM properly
     const formattedBOMs = boms.map(bom => ({
       _id: bom._id,
       userId: bom.userId,
@@ -237,40 +156,17 @@ exports.getAllBOMs = async (req, res) => {
       } : null,
       name: bom.name,
       description: bom.description,
-      materials: bom.materials.map(m => ({
-        _id: m._id,
-        name: m.name,
-        woodType: m.woodType,
-        foamType: m.foamType,
-        type: m.type,
-        width: m.width,
-        height: m.height,
-        length: m.length,
-        thickness: m.thickness,
-        unit: m.unit,
-        squareMeter: m.squareMeter,
-        price: m.price,
-        quantity: m.quantity,
-        description: m.description,
-        subtotal: m.subtotal
-      })),
-      additionalCosts: bom.additionalCosts.map(a => ({
-        _id: a._id,
-        name: a.name,
-        amount: a.amount,
-        description: a.description
-      })),
+      materials: bom.materials,
+      additionalCosts: bom.additionalCosts,
       materialsCost: bom.materialsCost,
       additionalCostsTotal: bom.additionalCostsTotal,
       totalCost: bom.totalCost,
       quotationId: bom.quotationId,
       bomNumber: bom.bomNumber,
       createdAt: bom.createdAt,
-      updatedAt: bom.updatedAt,
-      __v: bom.__v
+      updatedAt: bom.updatedAt
     }));
 
-    // ✅ Send uniform structured data
     res.status(200).json({
       success: true,
       data: formattedBOMs,
@@ -291,16 +187,16 @@ exports.getAllBOMs = async (req, res) => {
   }
 };
 
-
-
-// @desc    Get single BOM
-// @route   GET /api/boms/:id
-// @access  Private
+/**
+ * @desc    Get single BOM
+ * @route   GET /api/boms/:id
+ * @access  Private
+ */
 exports.getBOM = async (req, res) => {
   try {
     const bom = await BOM.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!bom) {
@@ -323,18 +219,16 @@ exports.getBOM = async (req, res) => {
   }
 };
 
-
-
-// @desc    Update BOM
-// @route   PUT /api/boms/:id
-// @access  Private
-
-
+/**
+ * @desc    Update BOM
+ * @route   PUT /api/boms/:id
+ * @access  Private
+ */
 exports.updateBOM = async (req, res) => {
   try {
     const bom = await BOM.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!bom) {
@@ -345,6 +239,10 @@ exports.updateBOM = async (req, res) => {
     }
 
     const { name, description, materials, additionalCosts } = req.body;
+
+    // Store old values
+    const oldName = bom.name;
+    const oldTotalCost = bom.totalCost;
 
     // Recalculate costs if materials or additional costs changed
     let shouldRecalculate = false;
@@ -389,6 +287,27 @@ exports.updateBOM = async (req, res) => {
 
     await bom.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'bom_updated',
+      title: 'BOM Updated',
+      message: `${currentUser.fullname} updated BOM: ${bom.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        bomId: bom._id,
+        oldName,
+        newName: bom.name,
+        oldTotalCost: oldTotalCost.toFixed(2),
+        newTotalCost: bom.totalCost.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(200).json({
       success: true,
       message: 'BOM updated successfully',
@@ -403,16 +322,16 @@ exports.updateBOM = async (req, res) => {
   }
 };
 
-
-
-// @desc    Delete BOM
-// @route   DELETE /api/boms/:id
-// @access  Private
+/**
+ * @desc    Delete BOM
+ * @route   DELETE /api/boms/:id
+ * @access  Private
+ */
 exports.deleteBOM = async (req, res) => {
   try {
-    const bom = await BOM.findOneAndDelete({
+    const bom = await BOM.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!bom) {
@@ -421,6 +340,30 @@ exports.deleteBOM = async (req, res) => {
         message: 'BOM not found'
       });
     }
+
+    // Store info before deletion
+    const bomName = bom.name;
+    const totalCost = bom.totalCost;
+
+    await bom.deleteOne();
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'bom_deleted',
+      title: 'BOM Deleted',
+      message: `${currentUser.fullname} deleted BOM: ${bomName}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        bomName,
+        totalCost: totalCost.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
 
     res.status(200).json({
       success: true,
@@ -435,14 +378,16 @@ exports.deleteBOM = async (req, res) => {
   }
 };
 
-// @desc    Add material to BOM
-// @route   POST /api/boms/:id/materials
-// @access  Private
+/**
+ * @desc    Add material to BOM
+ * @route   POST /api/boms/:id/materials
+ * @access  Private
+ */
 exports.addMaterialToBOM = async (req, res) => {
   try {
     const bom = await BOM.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!bom) {
@@ -478,6 +423,26 @@ exports.addMaterialToBOM = async (req, res) => {
 
     await bom.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'bom_updated',
+      title: 'Material Added to BOM',
+      message: `${currentUser.fullname} added material to BOM: ${bom.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        bomId: bom._id,
+        bomName: bom.name,
+        materialName: material.name || 'New Material',
+        newTotalCost: bom.totalCost.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(200).json({
       success: true,
       message: 'Material added successfully',
@@ -492,18 +457,16 @@ exports.addMaterialToBOM = async (req, res) => {
   }
 };
 
-
-
-// @desc    Delete material from BOM
-// @route   DELETE /api/boms/:id/materials/:materialId
-// @access  Private
-
-
+/**
+ * @desc    Delete material from BOM
+ * @route   DELETE /api/boms/:id/materials/:materialId
+ * @access  Private
+ */
 exports.deleteMaterialFromBOM = async (req, res) => {
   try {
     const bom = await BOM.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!bom) {
@@ -512,6 +475,11 @@ exports.deleteMaterialFromBOM = async (req, res) => {
         message: 'BOM not found'
       });
     }
+
+    // Find material before deletion
+    const materialToDelete = bom.materials.find(
+      material => material._id.toString() === req.params.materialId
+    );
 
     bom.materials = bom.materials.filter(
       material => material._id.toString() !== req.params.materialId
@@ -532,6 +500,26 @@ exports.deleteMaterialFromBOM = async (req, res) => {
 
     await bom.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'bom_updated',
+      title: 'Material Removed from BOM',
+      message: `${currentUser.fullname} removed material from BOM: ${bom.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        bomId: bom._id,
+        bomName: bom.name,
+        materialName: materialToDelete?.name || 'Material',
+        newTotalCost: bom.totalCost.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(200).json({
       success: true,
       message: 'Material deleted successfully',
@@ -542,6 +530,155 @@ exports.deleteMaterialFromBOM = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error deleting material'
+    });
+  }
+};
+
+/**
+ * @desc    Add additional cost to BOM
+ * @route   POST /api/boms/:id/additional-costs
+ * @access  Private
+ */
+exports.addAdditionalCost = async (req, res) => {
+  try {
+    const bom = await BOM.findOne({
+      _id: req.params.id,
+      companyName: req.companyName // ✅ Filter by company
+    });
+
+    if (!bom) {
+      return res.status(404).json({
+        success: false,
+        message: 'BOM not found'
+      });
+    }
+
+    const { name, amount, description } = req.body;
+
+    if (!name || amount === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide cost name and amount'
+      });
+    }
+
+    bom.additionalCosts.push({ name, amount, description });
+
+    // Recalculate additional costs total
+    let additionalCostsTotal = 0;
+    bom.additionalCosts.forEach(cost => {
+      additionalCostsTotal += cost.amount || 0;
+    });
+
+    bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
+    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
+
+    await bom.save();
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'bom_updated',
+      title: 'Additional Cost Added to BOM',
+      message: `${currentUser.fullname} added ${name} cost to BOM: ${bom.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        bomId: bom._id,
+        bomName: bom.name,
+        costName: name,
+        costAmount: amount.toFixed(2),
+        newTotalCost: bom.totalCost.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Additional cost added successfully',
+      data: bom
+    });
+  } catch (error) {
+    console.error('Add additional cost error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error adding additional cost'
+    });
+  }
+};
+
+/**
+ * @desc    Delete additional cost from BOM
+ * @route   DELETE /api/boms/:id/additional-costs/:costId
+ * @access  Private
+ */
+exports.deleteAdditionalCost = async (req, res) => {
+  try {
+    const bom = await BOM.findOne({
+      _id: req.params.id,
+      companyName: req.companyName // ✅ Filter by company
+    });
+
+    if (!bom) {
+      return res.status(404).json({
+        success: false,
+        message: 'BOM not found'
+      });
+    }
+
+    // Find cost before deletion
+    const costToDelete = bom.additionalCosts.find(
+      cost => cost._id.toString() === req.params.costId
+    );
+
+    bom.additionalCosts = bom.additionalCosts.filter(
+      cost => cost._id.toString() !== req.params.costId
+    );
+
+    // Recalculate additional costs total
+    let additionalCostsTotal = 0;
+    bom.additionalCosts.forEach(cost => {
+      additionalCostsTotal += cost.amount || 0;
+    });
+
+    bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
+    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
+
+    await bom.save();
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'bom_updated',
+      title: 'Additional Cost Removed from BOM',
+      message: `${currentUser.fullname} removed ${costToDelete?.name || 'cost'} from BOM: ${bom.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        bomId: bom._id,
+        bomName: bom.name,
+        costName: costToDelete?.name || 'Cost',
+        newTotalCost: bom.totalCost.toFixed(2)
+      },
+      excludeUserId: req.user.id
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Additional cost deleted successfully',
+      data: bom
+    });
+  } catch (error) {
+    console.error('Delete additional cost error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting additional cost'
     });
   }
 };

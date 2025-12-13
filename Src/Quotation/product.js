@@ -1,6 +1,9 @@
 const Product = require('../../Models/productModel');
 const ImageKit = require("imagekit");
 const Material = require("../../Models/MaterialModel");
+const { notifyCompany } = require('../../Utils/NotHelper');
+const User = require("../../Models/user");
+
 
 const imagekit = new ImageKit({
   publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
@@ -38,8 +41,6 @@ const calculateSquareMeters = (width, length, unit) => {
   return widthM * lengthM;
 };
 
-
-
 exports.createProduct = async (req, res) => {
   try {
     const { name, category, subCategory, description } = req.body;
@@ -64,16 +65,37 @@ exports.createProduct = async (req, res) => {
       uploadedImage = uploadResponse.url;
     }
 
-    // ✅ Create with company name
+    // ✅ FIX: Use req.user._id consistently
     const product = await Product.create({
-      userId: req.user.id,
-      companyName: req.companyName,  // ✅ NEW
+      userId: req.user._id,  // Changed from req.user.id
+      companyName: req.companyName,
       name,
       productId,
       category,
       subCategory,
       description,
       image: uploadedImage,
+    });
+
+    // ✅ FIX: Use req.user._id here too
+    const currentUser = await User.findById(req.user._id);
+
+    // Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'product_created',
+      title: 'New Product Created',
+      message: `${currentUser.fullname} created a new product: ${name}`,
+      performedBy: req.user._id,  // Changed from req.user.id
+      performedByName: currentUser.fullname,
+      metadata: {
+        productId: product._id,
+        productCode: productId,
+        productName: name,
+        category,
+        subCategory
+      },
+      excludeUserId: req.user._id  // Changed from req.user.id
     });
 
     res.status(201).json({
@@ -91,11 +113,16 @@ exports.createProduct = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Get all products
+ * @route   GET /api/products
+ * @access  Private
+ */
 exports.getAllProducts = async (req, res) => {
   try {
     const { category, subCategory, search, page = 1, limit = 20 } = req.query;
 
-    // ✅ Filter by company, not just userId
+    // Filter by company
     const query = { companyName: req.companyName };
 
     if (category) {
@@ -139,17 +166,16 @@ exports.getAllProducts = async (req, res) => {
   }
 };
 
-
-
-// @desc    Get single product
-// @route   GET /api/products/:id
-// @access  Private
-
+/**
+ * @desc    Get single product
+ * @route   GET /api/products/:id
+ * @access  Private
+ */
 exports.getProduct = async (req, res) => {
   try {
     const product = await Product.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!product) {
@@ -172,14 +198,16 @@ exports.getProduct = async (req, res) => {
   }
 };
 
-// @desc    Update product
-// @route   PUT /api/products/:id
-// @access  Private
+/**
+ * @desc    Update product
+ * @route   PUT /api/products/:id
+ * @access  Private
+ */
 exports.updateProduct = async (req, res) => {
   try {
     const product = await Product.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!product) {
@@ -198,11 +226,15 @@ exports.updateProduct = async (req, res) => {
       image
     } = req.body;
 
+    // Store old values for notification
+    const oldName = product.name;
+    const oldCategory = product.category;
+
     // Check if new product ID already exists
     if (productId && productId !== product.productId) {
       const existingProduct = await Product.findOne({ 
         productId, 
-        userId: req.user.id,
+        companyName: req.companyName,
         _id: { $ne: req.params.id }
       });
       if (existingProduct) {
@@ -222,6 +254,27 @@ exports.updateProduct = async (req, res) => {
 
     await product.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'product_updated',
+      title: 'Product Updated',
+      message: `${currentUser.fullname} updated product: ${product.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        productId: product._id,
+        productCode: product.productId,
+        oldName,
+        newName: product.name,
+        category: product.category
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(200).json({
       success: true,
       message: 'Product updated successfully',
@@ -236,14 +289,16 @@ exports.updateProduct = async (req, res) => {
   }
 };
 
-// @desc    Delete product
-// @route   DELETE /api/products/:id
-// @access  Private
+/**
+ * @desc    Delete product
+ * @route   DELETE /api/products/:id
+ * @access  Private
+ */
 exports.deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findOneAndDelete({
+    const product = await Product.findOne({
       _id: req.params.id,
-      userId: req.user.id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!product) {
@@ -252,6 +307,32 @@ exports.deleteProduct = async (req, res) => {
         message: 'Product not found'
       });
     }
+
+    // Store info before deletion
+    const productName = product.name;
+    const productCode = product.productId;
+    const category = product.category;
+
+    await product.deleteOne();
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'product_deleted',
+      title: 'Product Deleted',
+      message: `${currentUser.fullname} deleted product: ${productName}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        productName,
+        productCode,
+        category
+      },
+      excludeUserId: req.user.id
+    });
 
     res.status(200).json({
       success: true,
@@ -266,15 +347,16 @@ exports.deleteProduct = async (req, res) => {
   }
 };
 
-// @desc    Get product categories
-// @route   GET /api/products/categories
-// @access  Private
-
-
-
+/**
+ * @desc    Get product categories
+ * @route   GET /api/products/categories
+ * @access  Private
+ */
 exports.getCategories = async (req, res) => {
   try {
-    const categories = await Product.distinct('category', { userId: req.user.id });
+    const categories = await Product.distinct('category', { 
+      companyName: req.companyName // ✅ Filter by company
+    });
 
     res.status(200).json({
       success: true,
@@ -289,14 +371,22 @@ exports.getCategories = async (req, res) => {
   }
 };
 
+// ==================== MATERIAL CONTROLLERS ====================
 
-
-
+/**
+ * @desc    Get all materials
+ * @route   GET /api/materials
+ * @access  Private
+ */
 exports.getMaterials = async (req, res) => {
   try {
     const { category, isActive = true } = req.query;
     
-    const filter = { isActive };
+    const filter = { 
+      companyName: req.companyName, // ✅ Filter by company
+      isActive 
+    };
+    
     if (category) {
       filter.category = category.toUpperCase();
     }
@@ -317,8 +407,11 @@ exports.getMaterials = async (req, res) => {
   }
 };
 
-
-
+/**
+ * @desc    Create material
+ * @route   POST /api/materials
+ * @access  Private
+ */
 exports.createMaterial = async (req, res) => {
   try {
     const { 
@@ -333,7 +426,7 @@ exports.createMaterial = async (req, res) => {
       types,
       sizeVariants,
       foamVariants,
-      commonThicknesses, // Add this
+      commonThicknesses,
       wasteThreshold,
       unit,
       notes
@@ -357,12 +450,9 @@ exports.createMaterial = async (req, res) => {
       }
     }
 
-
-
-
     const material = new Material({
       name,
-       companyName: req.companyName, 
+      companyName: req.companyName, // ✅ Add company name
       category: category.toUpperCase(),
       standardWidth,
       standardLength,
@@ -379,8 +469,26 @@ exports.createMaterial = async (req, res) => {
       notes
     });
 
-
     await material.save();
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'material_created',
+      title: 'New Material Added',
+      message: `${currentUser.fullname} added a new material: ${name} (${category})`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        materialId: material._id,
+        materialName: name,
+        category
+      },
+      excludeUserId: req.user.id
+    });
 
     res.status(201).json({
       success: true,
@@ -396,8 +504,11 @@ exports.createMaterial = async (req, res) => {
   }
 };
 
-
-
+/**
+ * @desc    Calculate material cost
+ * @route   POST /api/materials/:materialId/calculate
+ * @access  Private
+ */
 exports.calculateMaterialCost = async (req, res) => {
   try {
     const { materialId } = req.params;
@@ -409,7 +520,7 @@ exports.calculateMaterialCost = async (req, res) => {
       sizeVariant,
       foamThickness,
       foamDensity,
-      quantity = 1 // For piece-based items
+      quantity = 1
     } = req.body;
 
     // Validation
@@ -427,7 +538,11 @@ exports.calculateMaterialCost = async (req, res) => {
       });
     }
 
-    const material = await Material.findById(materialId);
+    const material = await Material.findOne({
+      _id: materialId,
+      companyName: req.companyName // ✅ Filter by company
+    });
+
     if (!material) {
       return res.status(404).json({
         success: false,
@@ -448,7 +563,7 @@ exports.calculateMaterialCost = async (req, res) => {
     let standardUnit = material.standardUnit;
     let pricePerSqm = material.pricePerSqm;
 
-    // Check for size variant (e.g., Full Sheet, Half Sheet)
+    // Check for size variant
     if (sizeVariant && material.sizeVariants?.length) {
       const variant = material.sizeVariants.find(v => 
         v.name.toLowerCase() === sizeVariant.toLowerCase()
@@ -500,29 +615,19 @@ exports.calculateMaterialCost = async (req, res) => {
       if (typeData.standardLength) standardLength = typeData.standardLength;
     }
 
-    // Calculate standard sheet area in square meters
+    // Calculate standard sheet area
     const standardAreaSqm = calculateSquareMeters(
       standardWidth,
       standardLength,
       standardUnit
     );
 
-    // ===== EXCEL-STYLE CALCULATION =====
-    // This matches the Excel waste threshold logic:
-    // 1. First calculate minimum sheets needed (round up)
-    // 2. Check if the remainder on the last sheet exceeds waste threshold
-    // 3. If yes, add one more sheet to minimize waste
-    
+    // Calculate minimum units needed
     let minimumUnits = Math.ceil(projectAreaSqm / standardAreaSqm);
     
-    // Calculate the actual remainder from the last sheet
     const rawRemainder = projectAreaSqm % standardAreaSqm;
-    
-    // Calculate waste threshold area (75% of standard sheet by default)
     const wasteThresholdArea = standardAreaSqm * material.wasteThreshold;
     
-    // If there's a remainder AND it exceeds the threshold, we need an extra sheet
-    // This prevents excessive waste on the last sheet
     if (rawRemainder > 0 && rawRemainder > wasteThresholdArea) {
       minimumUnits += 1;
     }
@@ -587,20 +692,20 @@ exports.calculateMaterialCost = async (req, res) => {
   }
 };
 
-
-
-
-// 🟢 Update material specifications
+/**
+ * @desc    Update material
+ * @route   PUT /api/materials/:materialId
+ * @access  Private
+ */
 exports.updateMaterial = async (req, res) => {
   try {
     const { materialId } = req.params;
     const updateData = req.body;
 
-    const material = await Material.findByIdAndUpdate(
-      materialId,
-      updateData,
-      { new: true, runValidators: true }
-    );
+    const material = await Material.findOne({
+      _id: materialId,
+      companyName: req.companyName // ✅ Filter by company
+    });
 
     if (!material) {
       return res.status(404).json({
@@ -608,6 +713,34 @@ exports.updateMaterial = async (req, res) => {
         message: "Material not found"
       });
     }
+
+    // Store old values
+    const oldName = material.name;
+    const oldCategory = material.category;
+
+    // Update material
+    Object.assign(material, updateData);
+    await material.save();
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'material_updated',
+      title: 'Material Updated',
+      message: `${currentUser.fullname} updated material: ${material.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        materialId: material._id,
+        oldName,
+        newName: material.name,
+        category: material.category
+      },
+      excludeUserId: req.user.id
+    });
 
     res.status(200).json({
       success: true,
@@ -623,9 +756,11 @@ exports.updateMaterial = async (req, res) => {
   }
 };
 
-
-
-
+/**
+ * @desc    Add material types
+ * @route   POST /api/materials/:materialId/types
+ * @access  Private
+ */
 exports.addMaterialTypes = async (req, res) => {
   try {
     const { materialId } = req.params;
@@ -638,7 +773,11 @@ exports.addMaterialTypes = async (req, res) => {
       });
     }
 
-    const material = await Material.findById(materialId);
+    const material = await Material.findOne({
+      _id: materialId,
+      companyName: req.companyName // ✅ Filter by company
+    });
+
     if (!material) {
       return res.status(404).json({
         success: false,
@@ -665,6 +804,25 @@ exports.addMaterialTypes = async (req, res) => {
 
     await material.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'material_updated',
+      title: 'Material Types Added',
+      message: `${currentUser.fullname} added types to material: ${material.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        materialId: material._id,
+        materialName: material.name,
+        typesAdded: types.map(t => typeof t === 'string' ? t : t.name)
+      },
+      excludeUserId: req.user.id
+    });
+
     res.status(200).json({
       success: true,
       data: material
@@ -679,14 +837,19 @@ exports.addMaterialTypes = async (req, res) => {
   }
 };
 
-
-
-
+/**
+ * @desc    Delete material
+ * @route   DELETE /api/materials/:materialId
+ * @access  Private
+ */
 exports.deleteMaterial = async (req, res) => {
   try {
     const { materialId } = req.params;
 
-    const material = await Material.findByIdAndDelete(materialId);
+    const material = await Material.findOne({
+      _id: materialId,
+      companyName: req.companyName // ✅ Filter by company
+    });
 
     if (!material) {
       return res.status(404).json({
@@ -694,6 +857,30 @@ exports.deleteMaterial = async (req, res) => {
         message: "Material not found"
       });
     }
+
+    // Store info before deletion
+    const materialName = material.name;
+    const category = material.category;
+
+    await material.deleteOne();
+
+    // Get current user
+    const currentUser = await User.findById(req.user.id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'material_deleted',
+      title: 'Material Deleted',
+      message: `${currentUser.fullname} deleted material: ${materialName}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        materialName,
+        category
+      },
+      excludeUserId: req.user.id
+    });
 
     res.status(200).json({
       success: true,
@@ -708,3 +895,4 @@ exports.deleteMaterial = async (req, res) => {
     });
   }
 };
+

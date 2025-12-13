@@ -1,11 +1,11 @@
 const Order = require('../../Models/orderModel'); 
 const Quotation = require('../../Models/quotationModel'); 
 const ApiResponse = require('../../Utils/apiResponse');
-const User = require("../../Models/user")
+const User = require("../../Models/user");
+const { notifyCompany, notifyUser } = require('../../Utils/NotHelper');
 
 
 
-// Create order from quotation
 exports.createOrderFromQuotation = async (req, res) => {
   try {
     const { 
@@ -18,7 +18,7 @@ exports.createOrderFromQuotation = async (req, res) => {
 
     const quotation = await Quotation.findOne({
       _id: quotationId,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!quotation) {
@@ -29,7 +29,7 @@ exports.createOrderFromQuotation = async (req, res) => {
       return ApiResponse.error(res, 'Only approved or sent quotations can be converted to orders', 400);
     }
 
-    // Check if order already exists for this quotation
+    // Check if order already exists
     const existingOrder = await Order.findOne({ quotationId });
     if (existingOrder) {
       return ApiResponse.error(res, 'Order already exists for this quotation', 400);
@@ -37,7 +37,7 @@ exports.createOrderFromQuotation = async (req, res) => {
 
     const order = new Order({
       userId: req.user._id,
-      companyName: req.companyName,
+      companyName: req.companyName, // ✅ Add company name
       quotationId: quotation._id,
       quotationNumber: quotation.quotationNumber,
       clientName: quotation.clientName,
@@ -61,9 +61,32 @@ exports.createOrderFromQuotation = async (req, res) => {
 
     await order.save();
 
-    // Update quotation status to 'completed'
+    // Update quotation status
     quotation.status = 'completed';
     await quotation.save();
+
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'order_created',
+      title: 'New Order Created',
+      message: `${currentUser.fullname} created order ${order.orderNumber} for ${quotation.clientName}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        quotationNumber: quotation.quotationNumber,
+        clientName: quotation.clientName,
+        totalAmount: order.totalAmount.toFixed(2),
+        amountPaid: order.amountPaid.toFixed(2),
+        status: order.status
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Order created successfully', order, 201);
   } catch (error) {
@@ -72,11 +95,11 @@ exports.createOrderFromQuotation = async (req, res) => {
   }
 };
 
-
-
-
-
-// Get all orders
+/**
+ * @desc    Get all orders
+ * @route   GET /api/orders
+ * @access  Private
+ */
 exports.getAllOrders = async (req, res) => {
   try {
     const {
@@ -93,18 +116,16 @@ exports.getAllOrders = async (req, res) => {
       showMyAssignments = false
     } = req.query;
 
-    // Build filter - ✅ CHANGED: Filter by company instead of userId
-    const filter = { companyName: req.companyName }; // ✅ This is the key change
+    // Filter by company
+    const filter = { companyName: req.companyName };
 
     // Handle staff viewing their assignments
     if (showMyAssignments === 'true' || showMyAssignments === true) {
       filter.assignedTo = req.user._id;
     } else {
-      // Check user role
       if (req.user.role === 'staff') {
         filter.assignedTo = req.user._id;
       } else {
-        // Admin can filter by assigned staff
         if (assignedTo) {
           if (assignedTo === 'unassigned') {
             filter.assignedTo = null;
@@ -143,7 +164,7 @@ exports.getAllOrders = async (req, res) => {
     const sort = {};
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
 
-    // Execute query with pagination
+    // Execute query
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const [orders, total] = await Promise.all([
@@ -176,18 +197,18 @@ exports.getAllOrders = async (req, res) => {
   }
 };
 
-
-
-
-
-// Get single order
+/**
+ * @desc    Get single order
+ * @route   GET /api/orders/:id
+ * @access  Private
+ */
 exports.getOrder = async (req, res) => {
   try {
     const { id } = req.params;
 
     const order = await Order.findOne({
       _id: id,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     })
       .populate('quotationId', 'quotationNumber status description')
       .populate('invoiceId', 'invoiceNumber');
@@ -203,7 +224,11 @@ exports.getOrder = async (req, res) => {
   }
 };
 
-// Update order
+/**
+ * @desc    Update order
+ * @route   PUT /api/orders/:id
+ * @access  Private
+ */
 exports.updateOrder = async (req, res) => {
   try {
     const { id } = req.params;
@@ -218,7 +243,7 @@ exports.updateOrder = async (req, res) => {
 
     const order = await Order.findOne({
       _id: id,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!order) {
@@ -229,12 +254,36 @@ exports.updateOrder = async (req, res) => {
       return ApiResponse.error(res, 'Cannot update cancelled order', 400);
     }
 
+    // Store old values
+    const oldStatus = order.status;
+
     // Apply updates
     Object.keys(updates).forEach(key => {
       order[key] = updates[key];
     });
 
     await order.save();
+
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'order_updated',
+      title: 'Order Updated',
+      message: `${currentUser.fullname} updated order ${order.orderNumber}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        clientName: order.clientName,
+        oldStatus,
+        newStatus: order.status
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Order updated successfully', order);
   } catch (error) {
@@ -243,10 +292,11 @@ exports.updateOrder = async (req, res) => {
   }
 };
 
-// Add payment to order
-
-
-// Add payment to order
+/**
+ * @desc    Add payment to order
+ * @route   POST /api/orders/:id/payment
+ * @access  Private
+ */
 exports.addPayment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -258,14 +308,12 @@ exports.addPayment = async (req, res) => {
       return ApiResponse.error(res, 'Valid numeric payment amount is required', 400);
     }
 
-    // Allow access if:
-    // 1. User created the order (admin), OR
-    // 2. User is assigned to the order (staff)
+    // Allow access if user created order or is assigned
     const order = await Order.findOne({
       _id: id,
       $or: [
-        { userId: req.user._id }, // Order creator
-        { assignedTo: req.user._id } // Assigned staff
+        { userId: req.user._id },
+        { assignedTo: req.user._id }
       ]
     });
 
@@ -298,6 +346,9 @@ exports.addPayment = async (req, res) => {
       recordedBy: req.user.fullname || req.user.email
     };
 
+    const oldAmountPaid = order.amountPaid;
+    const oldPaymentStatus = order.paymentStatus;
+
     order.payments.push(paymentRecord);
     order.amountPaid += numericAmount;
 
@@ -313,6 +364,31 @@ exports.addPayment = async (req, res) => {
 
     const remainingBalance = order.totalAmount - order.amountPaid;
 
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'order_updated',
+      title: 'Payment Added to Order',
+      message: `${currentUser.fullname} added ₦${numericAmount.toLocaleString()} payment to order ${order.orderNumber}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        clientName: order.clientName,
+        paymentAmount: numericAmount.toFixed(2),
+        oldAmountPaid: oldAmountPaid.toFixed(2),
+        newAmountPaid: order.amountPaid.toFixed(2),
+        remainingBalance: remainingBalance.toFixed(2),
+        oldPaymentStatus,
+        newPaymentStatus: order.paymentStatus
+      },
+      excludeUserId: req.user._id
+    });
+
     return ApiResponse.success(res, 'Payment added successfully', {
       order,
       payment: paymentRecord,
@@ -325,22 +401,11 @@ exports.addPayment = async (req, res) => {
   }
 };
 
-
-// Helper function to check if user has access to order
-const checkOrderAccess = async (orderId, userId) => {
-  const order = await Order.findOne({
-    _id: orderId,
-    $or: [
-      { userId: userId }, // Order creator
-      { assignedTo: userId } // Assigned staff
-    ]
-  });
-  
-  return order;
-};
-
-
-// Update order status
+/**
+ * @desc    Update order status
+ * @route   PATCH /api/orders/:id/status
+ * @access  Private
+ */
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -351,23 +416,45 @@ exports.updateOrderStatus = async (req, res) => {
       return ApiResponse.error(res, `Invalid status. Must be one of: ${validStatuses.join(', ')}`, 400);
     }
 
-    // Allow access if:
-    // 1. User created the order (admin), OR
-    // 2. User is assigned to the order (staff)
+    // Allow access if user created order or is assigned
     const order = await Order.findOne({
       _id: id,
       $or: [
-        { userId: req.user._id }, // Order creator
-        { assignedTo: req.user._id } // Assigned staff
+        { userId: req.user._id },
+        { assignedTo: req.user._id }
       ]
     });
 
     if (!order) {
       return ApiResponse.error(res, 'Order not found or unauthorized', 404);
     }
+
+    // Store old status
+    const oldStatus = order.status;
     
     order.status = status;
     await order.save();
+
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'order_updated',
+      title: 'Order Status Updated',
+      message: `${currentUser.fullname} changed order ${order.orderNumber} status to ${status}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        clientName: order.clientName,
+        oldStatus,
+        newStatus: status
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Order status updated successfully', order);
   } catch (error) {
@@ -376,19 +463,49 @@ exports.updateOrderStatus = async (req, res) => {
   }
 };
 
-// Delete order
+/**
+ * @desc    Delete order
+ * @route   DELETE /api/orders/:id
+ * @access  Private
+ */
 exports.deleteOrder = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const order = await Order.findOneAndDelete({
+    const order = await Order.findOne({
       _id: id,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!order) {
       return ApiResponse.error(res, 'Order not found', 404);
     }
+
+    // Store info before deletion
+    const orderNumber = order.orderNumber;
+    const clientName = order.clientName;
+    const totalAmount = order.totalAmount;
+
+    await order.deleteOne();
+
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'order_deleted',
+      title: 'Order Deleted',
+      message: `${currentUser.fullname} deleted order ${orderNumber} for ${clientName}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderNumber,
+        clientName,
+        totalAmount: totalAmount.toFixed(2)
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Order deleted successfully', { id });
   } catch (error) {
@@ -397,13 +514,15 @@ exports.deleteOrder = async (req, res) => {
   }
 };
 
-// Get order statistics
+/**
+ * @desc    Get order statistics
+ * @route   GET /api/orders/stats
+ * @access  Private
+ */
 exports.getOrderStats = async (req, res) => {
   try {
-    const userId = req.user._id;
-
     const stats = await Order.aggregate([
-      { $match: { userId } },
+      { $match: { companyName: req.companyName } }, // ✅ Filter by company
       {
         $group: {
           _id: null,
@@ -457,14 +576,18 @@ exports.getOrderStats = async (req, res) => {
   }
 };
 
-// Get order receipt data (for PDF generation/download)
+/**
+ * @desc    Get order receipt data
+ * @route   GET /api/orders/:id/receipt
+ * @access  Private
+ */
 exports.getOrderReceipt = async (req, res) => {
   try {
     const { id } = req.params;
 
     const order = await Order.findOne({
       _id: id,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     })
       .populate('quotationId', 'quotationNumber')
       .populate('userId', 'name email phoneNumber businessName businessAddress');
@@ -473,7 +596,6 @@ exports.getOrderReceipt = async (req, res) => {
       return ApiResponse.error(res, 'Order not found', 404);
     }
 
-    // Format data for receipt
     const receiptData = {
       orderNumber: order.orderNumber,
       orderDate: order.orderDate,
@@ -516,10 +638,8 @@ exports.getOrderReceipt = async (req, res) => {
   }
 };
 
-
-
 /**
- * @desc    Get Available Staff (from active company)
+ * @desc    Get available staff
  * @route   GET /api/orders/staff-available
  * @access  Private
  */
@@ -527,7 +647,6 @@ exports.getAvailableStaff = async (req, res) => {
   try {
     const currentUser = await User.findById(req.user._id);
     
-    // Get active company
     const activeCompany = currentUser.companies && currentUser.companies.length > 0
       ? currentUser.companies[currentUser.activeCompanyIndex || 0]
       : null;
@@ -538,22 +657,19 @@ exports.getAvailableStaff = async (req, res) => {
 
     const companyName = activeCompany.name;
 
-    // ✅ Find all users who belong to this company with access granted
     const allUsers = await User.find({
       'companies.name': companyName,
     }).select('fullname email phoneNumber companies');
 
-    // ✅ Extract staff with their company-specific role and position
     const staffList = [];
 
     allUsers.forEach(user => {
       const companyData = user.companies.find(c => c.name === companyName);
       
-      // Only include if they have access and are not the current user (optional)
       if (companyData && companyData.accessGranted) {
         staffList.push({
           _id: user._id,
-          id: user._id, // Some frontends expect 'id'
+          id: user._id,
           fullname: user.fullname,
           email: user.email,
           phoneNumber: user.phoneNumber,
@@ -572,23 +688,21 @@ exports.getAvailableStaff = async (req, res) => {
 };
 
 /**
- * @desc    Assign Order to Staff
+ * @desc    Assign order to staff
  * @route   POST /api/orders/:id/assign
  * @access  Private
  */
 exports.assignOrderToStaff = async (req, res) => {
   try {
-    const { id } = req.params; // Order ID
+    const { id } = req.params;
     const { staffId, notes } = req.body;
 
-    // Validate staffId
     if (!staffId) {
       return ApiResponse.error(res, 'Staff ID is required', 400);
     }
 
     const currentUser = await User.findById(req.user._id);
     
-    // Get active company
     const activeCompany = currentUser.companies && currentUser.companies.length > 0
       ? currentUser.companies[currentUser.activeCompanyIndex || 0]
       : null;
@@ -597,29 +711,25 @@ exports.assignOrderToStaff = async (req, res) => {
       return ApiResponse.error(res, 'No active company found', 404);
     }
 
-    // ✅ Check if current user can assign (owner or admin in this company)
     if (!['owner', 'admin'].includes(activeCompany.role)) {
       return ApiResponse.error(res, 'You do not have permission to assign orders', 403);
     }
 
-    // ✅ Find the order (filter by company)
     const order = await Order.findOne({
       _id: id,
-      companyName: activeCompany.name // ✅ Ensure order belongs to company
+      companyName: activeCompany.name
     });
 
     if (!order) {
       return ApiResponse.error(res, 'Order not found or unauthorized', 404);
     }
 
-    // ✅ Verify the staff exists and belongs to the same company
     const staffUser = await User.findById(staffId);
 
     if (!staffUser) {
       return ApiResponse.error(res, 'Staff not found', 404);
     }
 
-    // ✅ Check if staff belongs to this company
     const staffCompanyData = staffUser.companies.find(
       c => c.name === activeCompany.name
     );
@@ -632,12 +742,10 @@ exports.assignOrderToStaff = async (req, res) => {
       return ApiResponse.error(res, 'Staff does not have access to this company', 403);
     }
 
-    // Cannot assign cancelled orders
     if (order.status === 'cancelled') {
       return ApiResponse.error(res, 'Cannot assign cancelled orders', 400);
     }
 
-    // ✅ Update assignment
     order.assignedTo = staffId;
     order.assignedBy = req.user._id;
     order.assignedAt = new Date();
@@ -645,13 +753,11 @@ exports.assignOrderToStaff = async (req, res) => {
 
     await order.save();
 
-    // ✅ Populate the assignment details for response
     await order.populate([
       { path: 'assignedTo', select: 'fullname email phoneNumber' },
       { path: 'assignedBy', select: 'fullname email' }
     ]);
 
-    // ✅ Get the staff's role and position in this company
     const assignedToData = {
       _id: staffUser._id,
       fullname: staffUser.fullname,
@@ -660,6 +766,42 @@ exports.assignOrderToStaff = async (req, res) => {
       role: staffCompanyData.role,
       position: staffCompanyData.position,
     };
+
+    // ✅ Notify the assigned staff
+    await notifyUser({
+      userId: staffId,
+      companyName: activeCompany.name,
+      type: 'order_assigned',
+      title: 'Order Assigned to You',
+      message: `${currentUser.fullname} assigned order ${order.orderNumber} (${order.clientName}) to you`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        clientName: order.clientName,
+        totalAmount: order.totalAmount.toFixed(2),
+        assignmentNotes: notes
+      }
+    });
+
+    // ✅ Notify company members (except assigned staff and assigner)
+    await notifyCompany({
+      companyName: activeCompany.name,
+      type: 'order_assigned',
+      title: 'Order Assigned',
+      message: `${currentUser.fullname} assigned order ${order.orderNumber} to ${staffUser.fullname}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        clientName: order.clientName,
+        assignedToName: staffUser.fullname,
+        assignedToPosition: staffCompanyData.position
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Order assigned successfully', {
       order,
@@ -678,17 +820,16 @@ exports.assignOrderToStaff = async (req, res) => {
 };
 
 /**
- * @desc    Unassign/Remove Staff from Order
+ * @desc    Unassign order from staff
  * @route   DELETE /api/orders/:id/unassign
  * @access  Private
  */
 exports.unassignOrderFromStaff = async (req, res) => {
   try {
-    const { id } = req.params; // Order ID
+    const { id } = req.params;
 
     const currentUser = await User.findById(req.user._id);
     
-    // Get active company
     const activeCompany = currentUser.companies && currentUser.companies.length > 0
       ? currentUser.companies[currentUser.activeCompanyIndex || 0]
       : null;
@@ -697,16 +838,14 @@ exports.unassignOrderFromStaff = async (req, res) => {
       return ApiResponse.error(res, 'No active company found', 404);
     }
 
-    // ✅ Check if current user can unassign (owner or admin)
     if (!['owner', 'admin'].includes(activeCompany.role)) {
       return ApiResponse.error(res, 'You do not have permission to unassign orders', 403);
     }
 
-    // ✅ Find the order (filter by company)
     const order = await Order.findOne({
       _id: id,
-      companyName: activeCompany.name // ✅ Ensure order belongs to company
-    });
+      companyName: activeCompany.name
+    }).populate('assignedTo', 'fullname email');
 
     if (!order) {
       return ApiResponse.error(res, 'Order not found or unauthorized', 404);
@@ -716,13 +855,49 @@ exports.unassignOrderFromStaff = async (req, res) => {
       return ApiResponse.error(res, 'Order is not assigned to any staff', 400);
     }
 
-    // ✅ Remove assignment
+    // Store info before unassigning
+    const previouslyAssignedTo = order.assignedTo._id;
+    const previouslyAssignedName = order.assignedTo.fullname;
+
     order.assignedTo = null;
     order.assignedBy = null;
     order.assignedAt = null;
     order.assignmentNotes = null;
 
     await order.save();
+
+    // ✅ Notify the previously assigned staff
+    await notifyUser({
+      userId: previouslyAssignedTo,
+      companyName: activeCompany.name,
+      type: 'order_unassigned',
+      title: 'Order Unassigned',
+      message: `${currentUser.fullname} removed you from order ${order.orderNumber}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        clientName: order.clientName
+      }
+    });
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: activeCompany.name,
+      type: 'order_unassigned',
+      title: 'Order Unassigned',
+      message: `${currentUser.fullname} unassigned ${previouslyAssignedName} from order ${order.orderNumber}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        clientName: order.clientName,
+        previouslyAssignedTo: previouslyAssignedName
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Order unassigned successfully', order);
 
@@ -731,3 +906,4 @@ exports.unassignOrderFromStaff = async (req, res) => {
     return ApiResponse.error(res, 'Server error unassigning order', 500);
   }
 };
+

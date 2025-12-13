@@ -9,8 +9,8 @@ const ApiResponse = require("../../Utils/apiResponse");
 const generateOTP = require('../../Utils/genOtp');
 const generateToken = require('../../Utils/genToken');
 
-const Company = require('../../Models/companyModel');
-const UserCompany = require('../../Models/userCompanyModel');
+// const Company = require('../../Models/companyModel');
+// const UserCompany = require('../../Models/userCompanyModel');
 
 
 

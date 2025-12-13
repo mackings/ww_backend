@@ -9,9 +9,11 @@ const multer = require("multer");
 
 const { sendEmail } = require('../../Utils/emailUtil');
 const generateInvoicePDF = require("../../Utils/GenPDF");
+const { notifyCompany } = require('../../Utils/NotHelper');
+
 
 const storage = multer.diskStorage({
-  destination: '/tmp', // Use /tmp for Vercel
+  destination: '/tmp',
   filename: (req, file, cb) => {
     cb(null, `invoice_${Date.now()}${path.extname(file.originalname)}`);
   },
@@ -29,33 +31,34 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
 
-
-
-
-
+/**
+ * @desc    Create invoice from quotation
+ * @route   POST /api/invoices
+ * @access  Private
+ */
 exports.createInvoiceFromQuotation = async (req, res) => {
   try {
     const { quotationId, dueDate, notes, amountPaid } = req.body;
 
-    // Validate quotation exists and belongs to user
+    // Validate quotation exists and belongs to company
     const quotation = await Quotation.findOne({
       _id: quotationId,
-      userId: req.user._id,
+      companyName: req.companyName, // ✅ Filter by company
     });
 
     if (!quotation) {
       return ApiResponse.error(res, 'Quotation not found or unauthorized', 404);
     }
 
-    // Check if quotation is approved or sent
+    // Check quotation status
     if (quotation.status !== 'approved' && quotation.status !== 'sent' && quotation.status !== 'draft') {
-      return ApiResponse.error(res, 'Only approved , sent, or draft quotations can be converted to invoices', 400);
+      return ApiResponse.error(res, 'Only approved, sent, or draft quotations can be converted to invoices', 400);
     }
 
     // Create invoice
     const invoice = new Invoice({
       userId: req.user._id,
-      companyName: req.companyName,
+      companyName: req.companyName, // ✅ Add company name
       quotationId: quotation._id,
       quotationNumber: quotation.quotationNumber,
       clientName: quotation.clientName,
@@ -82,16 +85,14 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     quotation.status = 'sent';
     await quotation.save();
 
-    // ✅ Check if PDF was uploaded from mobile
+    // Check if PDF was uploaded from mobile
     let pdfPath = null;
-    const uploadedPdf = req.file; // Multer stores uploaded file in req.file
+    const uploadedPdf = req.file;
 
     if (uploadedPdf) {
-      // Use the uploaded PDF from mobile
       pdfPath = uploadedPdf.path;
       console.log('✅ Using PDF from mobile:', pdfPath);
     } else {
-      // Fallback: Generate PDF on backend if no PDF was uploaded
       try {
         pdfPath = `/tmp/invoice_${invoice._id}.pdf`;
         await generateInvoicePDF(invoice, pdfPath);
@@ -101,7 +102,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
       }
     }
 
-    // ✅ Send PDF invoice via email (only if PDF exists)
+    // Send PDF invoice via email
     if (pdfPath && quotation.email) {
       try {
         console.log('📧 Sending email to:', quotation.email);
@@ -151,7 +152,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
 
         console.log('✅ Email sent successfully to:', quotation.email);
 
-        // ✅ Clean up temp PDF after sending
+        // Clean up temp PDF
         fs.unlink(pdfPath, (err) => {
           if (err) {
             console.error('⚠️ Error deleting temp PDF:', err.message);
@@ -164,6 +165,30 @@ exports.createInvoiceFromQuotation = async (req, res) => {
       }
     }
 
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'invoice_created',
+      title: 'New Invoice Created',
+      message: `${currentUser.fullname} created invoice ${invoice.invoiceNumber} for ${quotation.clientName}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        quotationNumber: quotation.quotationNumber,
+        clientName: quotation.clientName,
+        finalTotal: invoice.finalTotal.toFixed(2),
+        amountPaid: invoice.amountPaid.toFixed(2),
+        balance: invoice.balance.toFixed(2),
+        paymentStatus: invoice.paymentStatus
+      },
+      excludeUserId: req.user._id
+    });
+
     return ApiResponse.success(res, 'Invoice created successfully and sent via email', invoice, 201);
   } catch (error) {
     console.error('Create invoice error:', error);
@@ -171,15 +196,14 @@ exports.createInvoiceFromQuotation = async (req, res) => {
   }
 };
 
-// Export multer middleware for route
+// Export multer middleware
 exports.uploadPdf = upload.single('invoicePdf');
 
-
-
-
-
-
-// Get all invoices for logged-in user
+/**
+ * @desc    Get all invoices
+ * @route   GET /api/invoices
+ * @access  Private
+ */
 exports.getAllInvoices = async (req, res) => {
   try {
     const {
@@ -192,8 +216,8 @@ exports.getAllInvoices = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build filter - ✅ CHANGED: Filter by company instead of userId
-    const filter = { companyName: req.companyName }; // ✅ This is the key change
+    // Filter by company
+    const filter = { companyName: req.companyName };
 
     if (status) {
       filter.status = status;
@@ -247,16 +271,18 @@ exports.getAllInvoices = async (req, res) => {
   }
 };
 
-
-
-// Get single invoice
+/**
+ * @desc    Get single invoice
+ * @route   GET /api/invoices/:id
+ * @access  Private
+ */
 exports.getInvoice = async (req, res) => {
   try {
     const { id } = req.params;
 
     const invoice = await Invoice.findOne({
       _id: id,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     }).populate('quotationId', 'quotationNumber status description');
 
     if (!invoice) {
@@ -270,8 +296,11 @@ exports.getInvoice = async (req, res) => {
   }
 };
 
-// Update invoice payment
-// Update invoice payment
+/**
+ * @desc    Update invoice payment
+ * @route   PATCH /api/invoices/:id/payment
+ * @access  Private
+ */
 exports.updateInvoicePayment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -279,7 +308,7 @@ exports.updateInvoicePayment = async (req, res) => {
 
     const invoice = await Invoice.findOne({
       _id: id,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!invoice) {
@@ -290,13 +319,16 @@ exports.updateInvoicePayment = async (req, res) => {
       return ApiResponse.error(res, 'Cannot update payment for cancelled invoice', 400);
     }
 
-    // UPDATE payment with validation
+    // Store old values
+    const oldAmountPaid = invoice.amountPaid;
+    const oldPaymentStatus = invoice.paymentStatus;
+
+    // Update payment with validation
     if (amountPaid !== undefined) {
       if (amountPaid < 0) {
         return ApiResponse.error(res, 'Payment amount cannot be negative', 400);
       }
       
-      // ADD THIS VALIDATION
       if (amountPaid > invoice.finalTotal) {
         return ApiResponse.error(res, `Payment amount (₦${amountPaid.toLocaleString()}) cannot exceed invoice total (₦${invoice.finalTotal.toLocaleString()})`, 400);
       }
@@ -310,6 +342,30 @@ exports.updateInvoicePayment = async (req, res) => {
 
     await invoice.save();
 
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'invoice_updated',
+      title: 'Invoice Payment Updated',
+      message: `${currentUser.fullname} updated payment for invoice ${invoice.invoiceNumber}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        clientName: invoice.clientName,
+        oldAmountPaid: oldAmountPaid.toFixed(2),
+        newAmountPaid: invoice.amountPaid.toFixed(2),
+        balance: invoice.balance.toFixed(2),
+        oldPaymentStatus,
+        newPaymentStatus: invoice.paymentStatus
+      },
+      excludeUserId: req.user._id
+    });
+
     return ApiResponse.success(res, 'Invoice payment updated successfully', invoice);
   } catch (error) {
     console.error('Update invoice payment error:', error);
@@ -317,7 +373,11 @@ exports.updateInvoicePayment = async (req, res) => {
   }
 };
 
-// Update invoice status
+/**
+ * @desc    Update invoice status
+ * @route   PATCH /api/invoices/:id/status
+ * @access  Private
+ */
 exports.updateInvoiceStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -330,15 +390,39 @@ exports.updateInvoiceStatus = async (req, res) => {
 
     const invoice = await Invoice.findOne({
       _id: id,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!invoice) {
       return ApiResponse.error(res, 'Invoice not found', 404);
     }
 
+    // Store old status
+    const oldStatus = invoice.status;
+
     invoice.status = status;
     await invoice.save();
+
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'invoice_updated',
+      title: 'Invoice Status Updated',
+      message: `${currentUser.fullname} changed invoice ${invoice.invoiceNumber} status to ${status}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        clientName: invoice.clientName,
+        oldStatus,
+        newStatus: status
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Invoice status updated successfully', invoice);
   } catch (error) {
@@ -347,19 +431,49 @@ exports.updateInvoiceStatus = async (req, res) => {
   }
 };
 
-// Delete invoice
+/**
+ * @desc    Delete invoice
+ * @route   DELETE /api/invoices/:id
+ * @access  Private
+ */
 exports.deleteInvoice = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const invoice = await Invoice.findOneAndDelete({
+    const invoice = await Invoice.findOne({
       _id: id,
-      userId: req.user._id
+      companyName: req.companyName // ✅ Filter by company
     });
 
     if (!invoice) {
       return ApiResponse.error(res, 'Invoice not found', 404);
     }
+
+    // Store info before deletion
+    const invoiceNumber = invoice.invoiceNumber;
+    const clientName = invoice.clientName;
+    const finalTotal = invoice.finalTotal;
+
+    await invoice.deleteOne();
+
+    // Get current user
+    const currentUser = await User.findById(req.user._id);
+
+    // ✅ Notify company members
+    await notifyCompany({
+      companyName: req.companyName,
+      type: 'invoice_deleted',
+      title: 'Invoice Deleted',
+      message: `${currentUser.fullname} deleted invoice ${invoiceNumber} for ${clientName}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceNumber,
+        clientName,
+        finalTotal: finalTotal.toFixed(2)
+      },
+      excludeUserId: req.user._id
+    });
 
     return ApiResponse.success(res, 'Invoice deleted successfully', { id });
   } catch (error) {
@@ -368,13 +482,15 @@ exports.deleteInvoice = async (req, res) => {
   }
 };
 
-// Get invoice statistics
+/**
+ * @desc    Get invoice statistics
+ * @route   GET /api/invoices/stats
+ * @access  Private
+ */
 exports.getInvoiceStats = async (req, res) => {
   try {
-    const userId = req.user._id;
-
     const stats = await Invoice.aggregate([
-      { $match: { userId } },
+      { $match: { companyName: req.companyName } }, // ✅ Filter by company
       {
         $group: {
           _id: null,
@@ -419,4 +535,3 @@ exports.getInvoiceStats = async (req, res) => {
     return ApiResponse.error(res, 'Server error fetching invoice statistics', 500);
   }
 };
-    
