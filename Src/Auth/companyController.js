@@ -7,6 +7,7 @@ const { notifyCompany, notifyUser } = require('../../Utils/NotHelper');
 
 
 
+
 exports.createCompany = async (req, res) => {
   try {
     const { name, email, phoneNumber, address } = req.body;
@@ -66,6 +67,8 @@ exports.createCompany = async (req, res) => {
   }
 };
 
+
+
 exports.getMyCompanies = async (req, res) => {
   try {
     const userCompanies = await UserCompany.find({
@@ -90,6 +93,8 @@ exports.getMyCompanies = async (req, res) => {
     return ApiResponse.error(res, 'Server error fetching companies', 500);
   }
 };
+
+
 
 exports.inviteStaff = async (req, res) => {
   try {
@@ -174,7 +179,7 @@ exports.inviteStaff = async (req, res) => {
         role,
         position
       },
-      excludeUserId: req.user._id // Don't notify the person who did the action
+      excludeUserId: req.user._id
     });
 
     return ApiResponse.success(res, 'Staff invited successfully', {
@@ -187,6 +192,9 @@ exports.inviteStaff = async (req, res) => {
     return ApiResponse.error(res, 'Server error inviting staff', 500);
   }
 };
+
+
+
 
 exports.getCompanyStaff = async (req, res) => {
   try {
@@ -224,6 +232,9 @@ exports.getCompanyStaff = async (req, res) => {
     return ApiResponse.error(res, 'Server error fetching staff', 500);
   }
 };
+
+
+
 
 exports.revokeStaffAccess = async (req, res) => {
   try {
@@ -298,6 +309,9 @@ exports.revokeStaffAccess = async (req, res) => {
   }
 };
 
+
+
+
 exports.restoreStaffAccess = async (req, res) => {
   try {
     const { companyId, userId } = req.params;
@@ -366,6 +380,9 @@ exports.restoreStaffAccess = async (req, res) => {
     return ApiResponse.error(res, 'Server error restoring access', 500);
   }
 };
+
+
+
 
 exports.removeStaff = async (req, res) => {
   try {
