@@ -1,8 +1,8 @@
 const express = require("express");
 const { getClients, getSalesAnalytics, getInventoryStatus } = require("../Src/Sales/sales");
 const { protect } = require("../Utils/auth");
-const  {getActiveCompany} = require('../Utils/ActiveCompany');
-
+const { getActiveCompany } = require('../Utils/ActiveCompany');
+const { checkPermission, checkAnyPermission } = require('../Utils/permissions');
 
 const {
   createOrderFromQuotation,
@@ -18,26 +18,29 @@ const {
 
 const router = express.Router();
 
-
+// Apply auth and company middleware to all routes
 router.use(protect);
 router.use(getActiveCompany);
 
-// Sales routes
-router.get('/get-clients', protect, getClients);
+// ✅ Sales routes - require 'sales' permission
+router.get('/get-clients', checkPermission('sales'), getClients);
+router.get('/get-sales', checkPermission('sales'), getSalesAnalytics);
 
-router.get('/get-sales', protect, getSalesAnalytics);
+// ✅ Inventory can be accessed by sales OR order staff
+router.get('/get-inventory', checkAnyPermission(['sales', 'order']), getInventoryStatus);
 
-router.get('/get-inventory', protect, getInventoryStatus);
+// ✅ Order routes - require 'order' permission
+router.post('/orders/create', checkPermission('order'), createOrderFromQuotation);
+router.get('/orders', checkPermission('order'), getAllOrders);
+router.get('/orders/stats', checkPermission('order'), getOrderStats);
+router.get('/orders/:id', checkPermission('order'), getOrder);
 
-// Order routes
-router.post('/orders/create', protect, createOrderFromQuotation);
-router.get('/orders', protect, getAllOrders);
-router.get('/orders/stats', protect, getOrderStats);
-router.get('/orders/:id', protect, getOrder);
-router.get('/orders/:id/receipt', protect, getOrderReceipt);
-router.put('/orders/:id', protect, updateOrder);
-router.post('/orders/:id/payment', protect, addPayment);
-router.patch('/orders/:id/status', protect, updateOrderStatus);
-router.delete('/orders/:id', protect, deleteOrder);
+// ✅ Receipt can be accessed by order OR invoice staff
+router.get('/orders/:id/receipt', checkAnyPermission(['order', 'invoice']), getOrderReceipt);
+
+router.put('/orders/:id', checkPermission('order'), updateOrder);
+router.post('/orders/:id/payment', checkPermission('order'), addPayment);
+router.patch('/orders/:id/status', checkPermission('order'), updateOrderStatus);
+router.delete('/orders/:id', checkPermission('order'), deleteOrder);
 
 module.exports = router;

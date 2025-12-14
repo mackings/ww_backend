@@ -19,7 +19,6 @@ const notificationSchema = new mongoose.Schema({
     enum: [
 
 
-      
       // Company events
       'company_created',
       
@@ -74,7 +73,6 @@ const notificationSchema = new mongoose.Schema({
       'overhead_cost_created',
       'overhead_cost_updated',
       'overhead_cost_deleted',
-
 
     ],
 

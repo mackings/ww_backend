@@ -1,5 +1,6 @@
 const Invoice = require('../../Models/invoice'); 
 const Quotation = require('../../Models/quotationModel'); 
+const User = require('../../Models/user');
 const ApiResponse = require('../../Utils/apiResponse');
 
 const PDFDocument = require('pdfkit');
@@ -113,7 +114,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
           subject: `Invoice ${invoice.invoiceNumber} for Quotation #${quotation.quotationNumber}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #A16438;">Invoice from Sumit Nova Trust Ltd</h2>
+              <h2 style="color: #A16438;">Invoice from Woodworker</h2>
               <p>Dear ${quotation.clientName},</p>
               <p>Thank you for your business. Please find your invoice <strong>${invoice.invoiceNumber}</strong> attached below.</p>
               
@@ -133,13 +134,6 @@ exports.createInvoiceFromQuotation = async (req, res) => {
               <p>We appreciate your business and look forward to serving you again.</p>
               
               <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
-              <p style="font-size: 12px; color: #777;">
-                <strong>Sumit Nova Trust Ltd</strong><br>
-                K3, plaza, New Garage, Ibadan<br>
-                Alao Akala Expressway<br>
-                Phone: 07034567890<br>
-                Email: admin@sumitnovatrustltd.com
-              </p>
             </div>
           `,
           attachments: [

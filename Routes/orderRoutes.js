@@ -1,7 +1,7 @@
 const express = require("express");
 const { protect } = require("../Utils/auth");
 const  {getActiveCompany} = require('../Utils/ActiveCompany');
-
+const { checkPermission, checkAnyPermission } = require('../Utils/permissions');
 
 const {
   createOrderFromQuotation,
@@ -25,12 +25,12 @@ router.use(getActiveCompany);
 
 // Order routes
 router.post('/create', protect, createOrderFromQuotation);
-router.get('/get-orders', protect, getAllOrders);
+router.get('/get-orders', protect,checkPermission('order'), getAllOrders);
 router.get('/stats', protect, getOrderStats);
 router.get('/get-orders/:id', protect, getOrder);
 router.get('/get-orders/:id/receipt', protect, getOrderReceipt);
 router.put('/orders/:id', protect, updateOrder);
-router.post('/orders/:id/payment', protect, addPayment);
+router.post('/orders/:id/payment', protect,checkPermission('order'), addPayment);
 router.patch('/update-orders/:id/status', protect, updateOrderStatus);
 router.delete('/delete-orders/:id', protect, deleteOrder);
 

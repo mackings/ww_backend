@@ -262,10 +262,3 @@ exports.revokePermission = async (req, res) => {
     return error(res, 'Server error', 500);
   }
 };
-
-// module.exports = {
-//   getStaffPermissions,
-//   updateStaffPermissions,
-//   grantPermission,
-//   revokePermission
-// };
