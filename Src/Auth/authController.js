@@ -108,9 +108,30 @@ exports.signin = async (req, res) => {
       return ApiResponse.error(res, 'Invalid email or password', 401);
     }
 
+    // ✅ Check if account is active
+    if (user.isActive === false) {
+      return ApiResponse.error(res, 'Your account has been deactivated. Please contact support.', 403);
+    }
+
+    // ✅ Check if user has access to at least one company
+    const hasAccess = user.companies && user.companies.some(company => company.accessGranted);
+    if (!hasAccess) {
+      return ApiResponse.error(res, 'Your access has been revoked. Please contact your administrator.', 403);
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return ApiResponse.error(res, 'Invalid email or password', 401);
+    }
+
+    // ✅ Set active company to the first one with access (if current one is revoked)
+    const currentActiveCompany = user.companies[user.activeCompanyIndex];
+    if (!currentActiveCompany || !currentActiveCompany.accessGranted) {
+      const firstAccessibleCompanyIndex = user.companies.findIndex(c => c.accessGranted);
+      if (firstAccessibleCompanyIndex !== -1) {
+        user.activeCompanyIndex = firstAccessibleCompanyIndex;
+        await user.save();
+      }
     }
 
     const token = generateToken(user._id);

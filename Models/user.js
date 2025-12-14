@@ -24,6 +24,12 @@ const userSchema = new mongoose.Schema({
     minlength: 8,
     select: false,
   },
+
+   isActive: {
+    type: Boolean,
+    default: true,
+  },
+  
   
   // Multiple Companies Support
   companies: [{
