@@ -11,7 +11,7 @@ const notificationSchema = new mongoose.Schema({
   },
   companyName: {
     type: String,
-    required: true,
+    required: false,
     index: true
   },
   type: {
@@ -41,6 +41,11 @@ const notificationSchema = new mongoose.Schema({
       'product_created',
       'product_updated',
       'product_deleted',
+      'product_submitted_for_approval',
+      'product_approved',
+      'product_rejected',
+      'product_resubmitted',
+      'global_product_added',
       
       // Quotation events
       'quotation_created',

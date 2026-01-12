@@ -30,6 +30,7 @@ const orderRoutes = require("./Routes/orderRoutes");
 const OCost = require("./Routes/ocRoutes")
 const NotRoutes = require('./Routes/notificationRoutes');
 const permRoutes = require('./Routes/permRoutes');
+const platformRoutes = require('./Routes/platformRoutes');
 
 
 app.use('/api/auth', authRoutes);
@@ -43,6 +44,7 @@ app.use('/api/orders',orderRoutes);
 app.use('/api/oc/', OCost);
 app.use("/api/notifications", NotRoutes);
 app.use("/api/permission", permRoutes);
+app.use('/api/platform', platformRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

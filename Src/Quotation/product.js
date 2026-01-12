@@ -1,7 +1,7 @@
 const Product = require('../../Models/productModel');
 const ImageKit = require("imagekit");
 const Material = require("../../Models/MaterialModel");
-const { notifyCompany } = require('../../Utils/NotHelper');
+const { notifyCompany, notifyPlatformOwners, notifyAllCompanyOwners } = require('../../Utils/NotHelper');
 const User = require("../../Models/user");
 
 
@@ -43,12 +43,23 @@ const calculateSquareMeters = (width, length, unit) => {
 
 exports.createProduct = async (req, res) => {
   try {
-    const { name, category, subCategory, description } = req.body;
+    const { name, category, subCategory, description, isGlobal } = req.body;
 
     if (!name || !category) {
       return res.status(400).json({
         success: false,
         message: "Please provide product name and category",
+      });
+    }
+
+    // Check if this is a global product creation
+    const isGlobalProduct = req.user.isPlatformOwner && isGlobal === true;
+
+    // Platform owners creating global products don't need company
+    if (!isGlobalProduct && !req.companyName) {
+      return res.status(400).json({
+        success: false,
+        message: "Company context required for company products",
       });
     }
 
@@ -65,42 +76,89 @@ exports.createProduct = async (req, res) => {
       uploadedImage = uploadResponse.url;
     }
 
-    // ✅ FIX: Use req.user._id consistently
+    const currentUser = await User.findById(req.user._id);
+
     const product = await Product.create({
-      userId: req.user._id,  // Changed from req.user.id
-      companyName: req.companyName,
+      userId: req.user._id,
+      companyName: isGlobalProduct ? 'GLOBAL' : req.companyName,
       name,
       productId,
       category,
       subCategory,
       description,
       image: uploadedImage,
+      isGlobal: isGlobalProduct,
+      status: isGlobalProduct ? 'approved' : 'pending',
+      submittedBy: req.user._id,
+      approvedBy: isGlobalProduct ? req.user._id : null,
+      approvedAt: isGlobalProduct ? new Date() : null,
+      approvalHistory: [{
+        action: isGlobalProduct ? 'approved' : 'submitted',
+        performedBy: req.user._id,
+        performedByName: currentUser.fullname,
+        timestamp: new Date()
+      }]
     });
 
-    // ✅ FIX: Use req.user._id here too
-    const currentUser = await User.findById(req.user._id);
+    // Notification logic
+    if (isGlobalProduct) {
+      // Notify all company owners about new global product
+      await notifyAllCompanyOwners({
+        type: 'global_product_added',
+        title: 'New Global Product Available',
+        message: `Platform added a new global product: ${name}`,
+        performedBy: req.user._id,
+        performedByName: currentUser.fullname,
+        metadata: {
+          productId: product._id,
+          productCode: productId,
+          productName: name,
+          category,
+          subCategory
+        }
+      });
+    } else {
+      // Notify company members
+      await notifyCompany({
+        companyName: req.companyName,
+        type: 'product_created',
+        title: 'New Product Created',
+        message: `${currentUser.fullname} created a new product: ${name} (Pending Approval)`,
+        performedBy: req.user._id,
+        performedByName: currentUser.fullname,
+        metadata: {
+          productId: product._id,
+          productCode: productId,
+          productName: name,
+          category,
+          subCategory,
+          status: 'pending'
+        },
+        excludeUserId: req.user._id
+      });
 
-    // Notify company members
-    await notifyCompany({
-      companyName: req.companyName,
-      type: 'product_created',
-      title: 'New Product Created',
-      message: `${currentUser.fullname} created a new product: ${name}`,
-      performedBy: req.user._id,  // Changed from req.user.id
-      performedByName: currentUser.fullname,
-      metadata: {
-        productId: product._id,
-        productCode: productId,
-        productName: name,
-        category,
-        subCategory
-      },
-      excludeUserId: req.user._id  // Changed from req.user.id
-    });
+      // Notify platform owners about pending product
+      await notifyPlatformOwners({
+        type: 'product_submitted_for_approval',
+        title: 'Product Pending Approval',
+        message: `${currentUser.fullname} from ${req.companyName} submitted product: ${name}`,
+        performedBy: req.user._id,
+        performedByName: currentUser.fullname,
+        metadata: {
+          productId: product._id,
+          productCode: productId,
+          productName: name,
+          companyName: req.companyName,
+          category
+        }
+      });
+    }
 
     res.status(201).json({
       success: true,
-      message: "Product created successfully",
+      message: isGlobalProduct
+        ? "Global product created successfully"
+        : "Product submitted for approval",
       data: product,
     });
   } catch (error) {
@@ -120,10 +178,39 @@ exports.createProduct = async (req, res) => {
  */
 exports.getAllProducts = async (req, res) => {
   try {
-    const { category, subCategory, search, page = 1, limit = 20 } = req.query;
+    const { category, subCategory, search, page = 1, limit = 20, status } = req.query;
 
-    // Filter by company
-    const query = { companyName: req.companyName };
+    let query = {};
+
+    // Platform owners can see all products
+    if (req.isPlatformOwner) {
+      // Optional: filter by specific company
+      if (req.query.companyName) {
+        query.companyName = req.query.companyName;
+        query.isGlobal = false;
+      }
+      // Optional: filter by status
+      if (status) {
+        query.status = status;
+      }
+    } else {
+      // Regular users: see approved products from their company + all global products
+      const companyRole = req.activeCompany.role;
+
+      if (['owner', 'admin'].includes(companyRole)) {
+        // Owners/Admins see all their company products + global products
+        query.$or = [
+          { companyName: req.companyName },
+          { isGlobal: true, status: 'approved' }
+        ];
+      } else {
+        // Staff only see approved products from company + global products
+        query.$or = [
+          { companyName: req.companyName, status: 'approved' },
+          { isGlobal: true, status: 'approved' }
+        ];
+      }
+    }
 
     if (category) {
       query.category = category;
@@ -134,13 +221,18 @@ exports.getAllProducts = async (req, res) => {
     }
 
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { productId: { $regex: search, $options: 'i' } }
-      ];
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { productId: { $regex: search, $options: 'i' } }
+        ]
+      });
     }
 
     const products = await Product.find(query)
+      .populate('submittedBy', 'fullname email')
+      .populate('approvedBy', 'fullname email')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
@@ -285,6 +377,97 @@ exports.updateProduct = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error updating product'
+    });
+  }
+};
+
+/**
+ * @desc    Resubmit rejected product
+ * @route   PATCH /api/product/:id/resubmit
+ * @access  Private
+ */
+exports.resubmitProduct = async (req, res) => {
+  try {
+    const product = await Product.findOne({
+      _id: req.params.id,
+      companyName: req.companyName
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    if (product.status !== 'rejected') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only rejected products can be resubmitted'
+      });
+    }
+
+    // Update product fields if provided
+    const { name, category, subCategory, description } = req.body;
+
+    if (name) product.name = name;
+    if (category) product.category = category;
+    if (subCategory) product.subCategory = subCategory;
+    if (description) product.description = description;
+
+    // Handle image upload if present
+    if (req.file) {
+      const uploadResponse = await imagekit.upload({
+        file: req.file.buffer.toString("base64"),
+        fileName: `${Date.now()}_${product.name.replace(/\s+/g, "_")}.jpg`,
+        folder: "/products",
+      });
+      product.image = uploadResponse.url;
+    }
+
+    // Reset approval status
+    product.status = 'pending';
+    product.rejectionReason = null;
+    product.resubmissionCount += 1;
+
+    product.approvalHistory.push({
+      action: 'resubmitted',
+      performedBy: req.user._id,
+      performedByName: req.user.fullname,
+      reason: `Resubmission attempt #${product.resubmissionCount}`,
+      timestamp: new Date()
+    });
+
+    await product.save();
+
+    const currentUser = await User.findById(req.user._id);
+
+    // Notify platform owners
+    await notifyPlatformOwners({
+      type: 'product_resubmitted',
+      title: 'Product Resubmitted',
+      message: `${currentUser.fullname} from ${req.companyName} resubmitted product: ${product.name}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        productId: product._id,
+        productCode: product.productId,
+        productName: product.name,
+        companyName: req.companyName,
+        resubmissionCount: product.resubmissionCount
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Product resubmitted for approval',
+      data: product
+    });
+  } catch (error) {
+    console.error('Resubmit product error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error resubmitting product'
     });
   }
 };

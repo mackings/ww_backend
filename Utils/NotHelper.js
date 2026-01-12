@@ -90,7 +90,90 @@ const notifyUser = async ({
   }
 };
 
+/**
+ * Notify all platform owners
+ */
+const notifyPlatformOwners = async ({
+  type,
+  title,
+  message,
+  performedBy,
+  performedByName,
+  metadata = {}
+}) => {
+  try {
+    const platformOwners = await User.find({ isPlatformOwner: true });
+
+    const notifications = platformOwners.map(owner => ({
+      userId: owner._id,
+      companyName: 'PLATFORM',
+      type,
+      title,
+      message,
+      performedBy,
+      performedByName,
+      metadata
+    }));
+
+    if (notifications.length > 0) {
+      await Notification.insertMany(notifications);
+    }
+
+    console.log(`✅ Notified ${notifications.length} platform owners`);
+  } catch (error) {
+    console.error('❌ Notify platform owners error:', error);
+  }
+};
+
+/**
+ * Notify all company owners (not platform owners)
+ */
+const notifyAllCompanyOwners = async ({
+  type,
+  title,
+  message,
+  performedBy,
+  performedByName,
+  metadata = {}
+}) => {
+  try {
+    const users = await User.find({
+      'companies.role': 'owner',
+      isPlatformOwner: { $ne: true }
+    });
+
+    const notifications = [];
+
+    for (const user of users) {
+      for (const company of user.companies) {
+        if (company.role === 'owner' && company.accessGranted) {
+          notifications.push({
+            userId: user._id,
+            companyName: company.name,
+            type,
+            title,
+            message,
+            performedBy,
+            performedByName,
+            metadata
+          });
+        }
+      }
+    }
+
+    if (notifications.length > 0) {
+      await Notification.insertMany(notifications);
+    }
+
+    console.log(`✅ Notified ${notifications.length} company owners`);
+  } catch (error) {
+    console.error('❌ Notify company owners error:', error);
+  }
+};
+
 module.exports = {
   notifyCompany,
-  notifyUser
+  notifyUser,
+  notifyPlatformOwners,
+  notifyAllCompanyOwners
 };

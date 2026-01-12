@@ -1,0 +1,874 @@
+{
+  "title": "Platform Owner Dashboard API Documentation",
+  "version": "1.0.0",
+  "baseURL": "https://your-api-domain.com/api",
+  "description": "Complete API documentation for Platform Owners (App Owners) to manage the entire system, approve products, monitor companies, and view analytics.",
+
+  "authentication": {
+    "type": "Bearer Token (JWT)",
+    "header": "Authorization: Bearer <token>",
+    "note": "All endpoints require platform owner authentication. User must have isPlatformOwner: true",
+    "loginEndpoint": "/api/auth/signin",
+    "loginExample": {
+      "request": {
+        "method": "POST",
+        "url": "/api/auth/signin",
+        "body": {
+          "email": "platformowner@example.com",
+          "password": "your_password"
+        }
+      },
+      "response": {
+        "success": true,
+        "message": "Login successful",
+        "data": {
+          "user": {
+            "_id": "507f1f77bcf86cd799439011",
+            "fullname": "Platform Owner Name",
+            "email": "platformowner@example.com",
+            "isPlatformOwner": true,
+            "platformOwnerSince": "2024-01-15T10:30:00.000Z"
+          },
+          "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        }
+      }
+    }
+  },
+
+  "endpoints": [
+    {
+      "name": "Get Dashboard Statistics",
+      "method": "GET",
+      "path": "/api/platform/dashboard/stats",
+      "description": "Retrieve comprehensive platform-wide statistics including companies, products, orders, quotations, and recent activity.",
+      "authentication": "Required (Platform Owner)",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json"
+      },
+      "queryParameters": null,
+      "requestBody": null,
+      "responseExample": {
+        "success": true,
+        "data": {
+          "stats": {
+            "companies": {
+              "total": 45,
+              "active": 42,
+              "inactive": 3
+            },
+            "products": {
+              "total": 1250,
+              "pending": 15,
+              "global": 50,
+              "companyProducts": 1200
+            },
+            "orders": 3420,
+            "quotations": 5680,
+            "users": 230
+          },
+          "recentActivity": {
+            "pendingProducts": [
+              {
+                "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                "name": "Modern Oak Dining Table",
+                "productId": "PRD-A1B2C3",
+                "category": "Furniture",
+                "subCategory": "Dining Tables",
+                "companyName": "WoodCraft Co.",
+                "status": "pending",
+                "submittedBy": {
+                  "_id": "507f1f77bcf86cd799439011",
+                  "fullname": "John Smith",
+                  "email": "john@woodcraft.com"
+                },
+                "submittedAt": "2024-01-15T14:30:00.000Z",
+                "createdAt": "2024-01-15T14:30:00.000Z",
+                "image": "https://ik.imagekit.io/mackingsley/products/dining_table.jpg"
+              }
+            ],
+            "recentCompanies": [
+              {
+                "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                "name": "Premium Woodworks Ltd",
+                "email": "info@premiumwood.com",
+                "phoneNumber": "+1234567890",
+                "address": "123 Wood Street, City",
+                "isActive": true,
+                "owner": {
+                  "_id": "507f1f77bcf86cd799439012",
+                  "fullname": "Jane Doe",
+                  "email": "jane@premiumwood.com",
+                  "phoneNumber": "+1234567891"
+                },
+                "createdAt": "2024-01-14T10:00:00.000Z",
+                "updatedAt": "2024-01-14T10:00:00.000Z"
+              }
+            ]
+          }
+        }
+      },
+      "errorResponses": [
+        {
+          "status": 401,
+          "body": {
+            "success": false,
+            "message": "Not authorized to access this route"
+          }
+        },
+        {
+          "status": 403,
+          "body": {
+            "success": false,
+            "message": "Access denied: Platform Owner role required"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Get All Companies",
+      "method": "GET",
+      "path": "/api/platform/companies",
+      "description": "Get paginated list of all companies with their statistics (products, orders, quotations, users).",
+      "authentication": "Required (Platform Owner)",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json"
+      },
+      "queryParameters": {
+        "page": {
+          "type": "number",
+          "default": 1,
+          "description": "Page number for pagination"
+        },
+        "limit": {
+          "type": "number",
+          "default": 20,
+          "description": "Number of items per page"
+        },
+        "search": {
+          "type": "string",
+          "optional": true,
+          "description": "Search by company name or email"
+        },
+        "isActive": {
+          "type": "boolean",
+          "optional": true,
+          "description": "Filter by active/inactive status"
+        }
+      },
+      "requestExample": "GET /api/platform/companies?page=1&limit=20&search=wood&isActive=true",
+      "responseExample": {
+        "success": true,
+        "data": [
+          {
+            "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+            "name": "WoodCraft Co.",
+            "email": "info@woodcraft.com",
+            "phoneNumber": "+1234567890",
+            "address": "456 Carpenter Ave, Timber City",
+            "isActive": true,
+            "owner": {
+              "_id": "507f1f77bcf86cd799439011",
+              "fullname": "John Smith",
+              "email": "john@woodcraft.com",
+              "phoneNumber": "+1234567890"
+            },
+            "createdAt": "2024-01-10T08:00:00.000Z",
+            "updatedAt": "2024-01-15T12:00:00.000Z",
+            "stats": {
+              "products": 85,
+              "orders": 142,
+              "quotations": 230,
+              "users": 8
+            }
+          },
+          {
+            "_id": "65a1b2c3d4e5f6a7b8c9d0e3",
+            "name": "Premium Woodworks Ltd",
+            "email": "info@premiumwood.com",
+            "phoneNumber": "+1234567891",
+            "address": "789 Oak Boulevard, Forest Town",
+            "isActive": true,
+            "owner": {
+              "_id": "507f1f77bcf86cd799439012",
+              "fullname": "Jane Doe",
+              "email": "jane@premiumwood.com",
+              "phoneNumber": "+1234567891"
+            },
+            "createdAt": "2024-01-05T09:30:00.000Z",
+            "updatedAt": "2024-01-14T16:20:00.000Z",
+            "stats": {
+              "products": 120,
+              "orders": 215,
+              "quotations": 340,
+              "users": 12
+            }
+          }
+        ],
+        "pagination": {
+          "page": 1,
+          "limit": 20,
+          "total": 45,
+          "pages": 3
+        }
+      }
+    },
+
+    {
+      "name": "Get Company Usage Statistics",
+      "method": "GET",
+      "path": "/api/platform/companies/:companyId/usage",
+      "description": "Get detailed usage statistics for a specific company including product breakdown, revenue, and recent orders.",
+      "authentication": "Required (Platform Owner)",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json"
+      },
+      "pathParameters": {
+        "companyId": {
+          "type": "string",
+          "required": true,
+          "description": "MongoDB ObjectId of the company"
+        }
+      },
+      "requestExample": "GET /api/platform/companies/65a1b2c3d4e5f6a7b8c9d0e2/usage",
+      "responseExample": {
+        "success": true,
+        "data": {
+          "company": {
+            "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+            "name": "WoodCraft Co.",
+            "email": "info@woodcraft.com",
+            "phoneNumber": "+1234567890",
+            "address": "456 Carpenter Ave, Timber City",
+            "isActive": true,
+            "owner": {
+              "_id": "507f1f77bcf86cd799439011",
+              "fullname": "John Smith",
+              "email": "john@woodcraft.com",
+              "phoneNumber": "+1234567890"
+            },
+            "createdAt": "2024-01-10T08:00:00.000Z",
+            "updatedAt": "2024-01-15T12:00:00.000Z"
+          },
+          "stats": {
+            "products": {
+              "total": 85,
+              "pending": 5,
+              "approved": 78,
+              "rejected": 2
+            },
+            "orders": 142,
+            "quotations": 230,
+            "users": 8,
+            "revenue": {
+              "totalRevenue": 285000,
+              "totalPaid": 245000
+            }
+          },
+          "recentOrders": [
+            {
+              "_id": "65a1b2c3d4e5f6a7b8c9d0e4",
+              "orderNumber": "0145",
+              "totalAmount": 5500,
+              "status": "completed",
+              "paymentStatus": "paid",
+              "createdAt": "2024-01-14T11:20:00.000Z"
+            },
+            {
+              "_id": "65a1b2c3d4e5f6a7b8c9d0e5",
+              "orderNumber": "0144",
+              "totalAmount": 3200,
+              "status": "in_progress",
+              "paymentStatus": "partial",
+              "createdAt": "2024-01-13T09:15:00.000Z"
+            }
+          ]
+        }
+      },
+      "errorResponses": [
+        {
+          "status": 404,
+          "body": {
+            "success": false,
+            "message": "Company not found"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Get Pending Products",
+      "method": "GET",
+      "path": "/api/platform/products/pending",
+      "description": "Get all products pending approval across all companies with pagination and filtering options.",
+      "authentication": "Required (Platform Owner)",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json"
+      },
+      "queryParameters": {
+        "page": {
+          "type": "number",
+          "default": 1,
+          "description": "Page number"
+        },
+        "limit": {
+          "type": "number",
+          "default": 20,
+          "description": "Items per page"
+        },
+        "companyName": {
+          "type": "string",
+          "optional": true,
+          "description": "Filter by specific company"
+        },
+        "category": {
+          "type": "string",
+          "optional": true,
+          "description": "Filter by product category"
+        }
+      },
+      "requestExample": "GET /api/platform/products/pending?page=1&limit=20&companyName=WoodCraft%20Co.",
+      "responseExample": {
+        "success": true,
+        "data": [
+          {
+            "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+            "userId": "507f1f77bcf86cd799439011",
+            "companyName": "WoodCraft Co.",
+            "name": "Modern Oak Dining Table",
+            "productId": "PRD-A1B2C3",
+            "category": "Furniture",
+            "subCategory": "Dining Tables",
+            "description": "Elegant modern dining table made from solid oak with minimalist design",
+            "image": "https://ik.imagekit.io/mackingsley/products/oak_dining_table.jpg",
+            "isGlobal": false,
+            "status": "pending",
+            "approvedBy": null,
+            "approvedAt": null,
+            "rejectionReason": null,
+            "submittedBy": {
+              "_id": "507f1f77bcf86cd799439011",
+              "fullname": "John Smith",
+              "email": "john@woodcraft.com"
+            },
+            "submittedAt": "2024-01-15T14:30:00.000Z",
+            "resubmissionCount": 0,
+            "approvalHistory": [
+              {
+                "action": "submitted",
+                "performedBy": "507f1f77bcf86cd799439011",
+                "performedByName": "John Smith",
+                "reason": null,
+                "timestamp": "2024-01-15T14:30:00.000Z"
+              }
+            ],
+            "createdAt": "2024-01-15T14:30:00.000Z",
+            "updatedAt": "2024-01-15T14:30:00.000Z"
+          }
+        ],
+        "pagination": {
+          "page": 1,
+          "limit": 20,
+          "total": 15,
+          "pages": 1
+        }
+      }
+    },
+
+    {
+      "name": "Approve Product",
+      "method": "PATCH",
+      "path": "/api/platform/products/:productId/approve",
+      "description": "Approve a pending product. Sends email notification to submitter and creates in-app notification.",
+      "authentication": "Required (Platform Owner)",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json"
+      },
+      "pathParameters": {
+        "productId": {
+          "type": "string",
+          "required": true,
+          "description": "MongoDB ObjectId of the product"
+        }
+      },
+      "requestBody": {
+        "notes": {
+          "type": "string",
+          "optional": true,
+          "description": "Optional approval notes/feedback for the company"
+        }
+      },
+      "requestExample": {
+        "method": "PATCH",
+        "url": "/api/platform/products/65a1b2c3d4e5f6a7b8c9d0e1/approve",
+        "body": {
+          "notes": "Great product! Approved for the platform."
+        }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Product approved successfully",
+        "data": {
+          "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+          "userId": "507f1f77bcf86cd799439011",
+          "companyName": "WoodCraft Co.",
+          "name": "Modern Oak Dining Table",
+          "productId": "PRD-A1B2C3",
+          "category": "Furniture",
+          "subCategory": "Dining Tables",
+          "description": "Elegant modern dining table made from solid oak with minimalist design",
+          "image": "https://ik.imagekit.io/mackingsley/products/oak_dining_table.jpg",
+          "isGlobal": false,
+          "status": "approved",
+          "approvedBy": "507f1f77bcf86cd799439020",
+          "approvedAt": "2024-01-15T16:45:00.000Z",
+          "rejectionReason": null,
+          "submittedBy": "507f1f77bcf86cd799439011",
+          "submittedAt": "2024-01-15T14:30:00.000Z",
+          "resubmissionCount": 0,
+          "approvalHistory": [
+            {
+              "action": "submitted",
+              "performedBy": "507f1f77bcf86cd799439011",
+              "performedByName": "John Smith",
+              "reason": null,
+              "timestamp": "2024-01-15T14:30:00.000Z"
+            },
+            {
+              "action": "approved",
+              "performedBy": "507f1f77bcf86cd799439020",
+              "performedByName": "Platform Admin",
+              "reason": "Great product! Approved for the platform.",
+              "timestamp": "2024-01-15T16:45:00.000Z"
+            }
+          ],
+          "createdAt": "2024-01-15T14:30:00.000Z",
+          "updatedAt": "2024-01-15T16:45:00.000Z"
+        }
+      },
+      "sideEffects": [
+        "Sends email to product submitter",
+        "Creates in-app notification for all company members",
+        "Product becomes visible to company users"
+      ],
+      "errorResponses": [
+        {
+          "status": 404,
+          "body": {
+            "success": false,
+            "message": "Product not found"
+          }
+        },
+        {
+          "status": 400,
+          "body": {
+            "success": false,
+            "message": "Product is already approved"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Reject Product",
+      "method": "PATCH",
+      "path": "/api/platform/products/:productId/reject",
+      "description": "Reject a product with a reason. Sends email notification with rejection reason. Company can resubmit after editing.",
+      "authentication": "Required (Platform Owner)",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json"
+      },
+      "pathParameters": {
+        "productId": {
+          "type": "string",
+          "required": true,
+          "description": "MongoDB ObjectId of the product"
+        }
+      },
+      "requestBody": {
+        "reason": {
+          "type": "string",
+          "required": true,
+          "description": "Reason for rejection (required)"
+        }
+      },
+      "requestExample": {
+        "method": "PATCH",
+        "url": "/api/platform/products/65a1b2c3d4e5f6a7b8c9d0e1/reject",
+        "body": {
+          "reason": "Product description is incomplete. Please add more details about dimensions and materials used."
+        }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Product rejected",
+        "data": {
+          "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+          "userId": "507f1f77bcf86cd799439011",
+          "companyName": "WoodCraft Co.",
+          "name": "Modern Oak Dining Table",
+          "productId": "PRD-A1B2C3",
+          "category": "Furniture",
+          "subCategory": "Dining Tables",
+          "description": "Elegant modern dining table",
+          "image": "https://ik.imagekit.io/mackingsley/products/oak_dining_table.jpg",
+          "isGlobal": false,
+          "status": "rejected",
+          "approvedBy": null,
+          "approvedAt": null,
+          "rejectionReason": "Product description is incomplete. Please add more details about dimensions and materials used.",
+          "submittedBy": "507f1f77bcf86cd799439011",
+          "submittedAt": "2024-01-15T14:30:00.000Z",
+          "resubmissionCount": 0,
+          "approvalHistory": [
+            {
+              "action": "submitted",
+              "performedBy": "507f1f77bcf86cd799439011",
+              "performedByName": "John Smith",
+              "reason": null,
+              "timestamp": "2024-01-15T14:30:00.000Z"
+            },
+            {
+              "action": "rejected",
+              "performedBy": "507f1f77bcf86cd799439020",
+              "performedByName": "Platform Admin",
+              "reason": "Product description is incomplete. Please add more details about dimensions and materials used.",
+              "timestamp": "2024-01-15T16:50:00.000Z"
+            }
+          ],
+          "createdAt": "2024-01-15T14:30:00.000Z",
+          "updatedAt": "2024-01-15T16:50:00.000Z"
+        }
+      },
+      "sideEffects": [
+        "Sends rejection email to product submitter with reason",
+        "Creates in-app notification for company members",
+        "Product remains hidden from regular users",
+        "Company can edit and resubmit the product"
+      ],
+      "errorResponses": [
+        {
+          "status": 404,
+          "body": {
+            "success": false,
+            "message": "Product not found"
+          }
+        },
+        {
+          "status": 400,
+          "body": {
+            "success": false,
+            "message": "Rejection reason is required"
+          }
+        },
+        {
+          "status": 400,
+          "body": {
+            "success": false,
+            "message": "Product is already rejected"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Create Global Product",
+      "method": "POST",
+      "path": "/api/platform/products/global",
+      "description": "Create a global product that is instantly visible to all companies. Automatically approved.",
+      "authentication": "Required (Platform Owner)",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "Content-Type": "multipart/form-data"
+      },
+      "requestBody": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Product name"
+        },
+        "category": {
+          "type": "string",
+          "required": true,
+          "description": "Product category"
+        },
+        "subCategory": {
+          "type": "string",
+          "optional": true,
+          "description": "Product subcategory"
+        },
+        "description": {
+          "type": "string",
+          "optional": true,
+          "description": "Product description"
+        },
+        "image": {
+          "type": "file",
+          "optional": true,
+          "description": "Product image file (JPG, PNG)"
+        },
+        "isGlobal": {
+          "type": "boolean",
+          "required": true,
+          "value": true,
+          "description": "Must be true for global products"
+        }
+      },
+      "requestExample": {
+        "method": "POST",
+        "url": "/api/platform/products/global",
+        "contentType": "multipart/form-data",
+        "formData": {
+          "name": "Premium Mahogany Wood Plank",
+          "category": "Raw Materials",
+          "subCategory": "Hardwood",
+          "description": "High-quality mahogany wood planks, perfect for premium furniture projects",
+          "isGlobal": "true",
+          "image": "[Binary file data]"
+        }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Global product created successfully",
+        "data": {
+          "_id": "65a1b2c3d4e5f6a7b8c9d0f1",
+          "userId": "507f1f77bcf86cd799439020",
+          "companyName": "GLOBAL",
+          "name": "Premium Mahogany Wood Plank",
+          "productId": "PRD-XY12Z3",
+          "category": "Raw Materials",
+          "subCategory": "Hardwood",
+          "description": "High-quality mahogany wood planks, perfect for premium furniture projects",
+          "image": "https://ik.imagekit.io/mackingsley/products/mahogany_plank.jpg",
+          "isGlobal": true,
+          "status": "approved",
+          "approvedBy": "507f1f77bcf86cd799439020",
+          "approvedAt": "2024-01-15T17:00:00.000Z",
+          "rejectionReason": null,
+          "submittedBy": "507f1f77bcf86cd799439020",
+          "submittedAt": "2024-01-15T17:00:00.000Z",
+          "resubmissionCount": 0,
+          "approvalHistory": [
+            {
+              "action": "approved",
+              "performedBy": "507f1f77bcf86cd799439020",
+              "performedByName": "Platform Admin",
+              "timestamp": "2024-01-15T17:00:00.000Z"
+            }
+          ],
+          "createdAt": "2024-01-15T17:00:00.000Z",
+          "updatedAt": "2024-01-15T17:00:00.000Z"
+        }
+      },
+      "sideEffects": [
+        "Product is instantly approved and visible to all companies",
+        "Sends notification to all company owners",
+        "Product appears in all company product lists"
+      ]
+    }
+  ],
+
+  "dataStructures": {
+    "Company": {
+      "_id": "string (ObjectId)",
+      "name": "string",
+      "email": "string",
+      "phoneNumber": "string",
+      "address": "string",
+      "owner": "string (ObjectId reference to User)",
+      "isActive": "boolean",
+      "createdAt": "string (ISO 8601 date)",
+      "updatedAt": "string (ISO 8601 date)"
+    },
+    "Product": {
+      "_id": "string (ObjectId)",
+      "userId": "string (ObjectId reference to User)",
+      "companyName": "string",
+      "name": "string",
+      "productId": "string (PRD-XXXXXX format)",
+      "category": "string",
+      "subCategory": "string (optional)",
+      "description": "string (optional)",
+      "image": "string (URL, optional)",
+      "isGlobal": "boolean",
+      "status": "string (enum: 'pending', 'approved', 'rejected')",
+      "approvedBy": "string (ObjectId reference to User, nullable)",
+      "approvedAt": "string (ISO 8601 date, nullable)",
+      "rejectionReason": "string (nullable)",
+      "submittedBy": "string (ObjectId reference to User)",
+      "submittedAt": "string (ISO 8601 date)",
+      "resubmissionCount": "number",
+      "approvalHistory": "array of ApprovalHistoryItem",
+      "createdAt": "string (ISO 8601 date)",
+      "updatedAt": "string (ISO 8601 date)"
+    },
+    "ApprovalHistoryItem": {
+      "action": "string (enum: 'submitted', 'approved', 'rejected', 'resubmitted')",
+      "performedBy": "string (ObjectId reference to User)",
+      "performedByName": "string",
+      "reason": "string (nullable)",
+      "timestamp": "string (ISO 8601 date)"
+    },
+    "User": {
+      "_id": "string (ObjectId)",
+      "fullname": "string",
+      "email": "string",
+      "phoneNumber": "string",
+      "isPlatformOwner": "boolean",
+      "platformOwnerSince": "string (ISO 8601 date, nullable)"
+    },
+    "Order": {
+      "_id": "string (ObjectId)",
+      "orderNumber": "string",
+      "totalAmount": "number",
+      "status": "string (enum: 'pending', 'in_progress', 'completed', 'cancelled', 'on_hold')",
+      "paymentStatus": "string (enum: 'unpaid', 'partial', 'paid')",
+      "createdAt": "string (ISO 8601 date)"
+    }
+  },
+
+  "commonErrors": [
+    {
+      "status": 401,
+      "message": "Not authorized to access this route",
+      "cause": "Missing or invalid JWT token"
+    },
+    {
+      "status": 403,
+      "message": "Access denied: Platform Owner role required",
+      "cause": "User is not a platform owner (isPlatformOwner: false)"
+    },
+    {
+      "status": 404,
+      "message": "Resource not found",
+      "cause": "Company, Product, or other resource doesn't exist"
+    },
+    {
+      "status": 500,
+      "message": "Server error",
+      "cause": "Internal server error - check server logs"
+    }
+  ],
+
+  "workflowExamples": [
+    {
+      "name": "Complete Product Approval Workflow",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Login as Platform Owner",
+          "endpoint": "POST /api/auth/signin",
+          "description": "Authenticate and get JWT token"
+        },
+        {
+          "step": 2,
+          "action": "Check Dashboard Stats",
+          "endpoint": "GET /api/platform/dashboard/stats",
+          "description": "View pending products count and recent activity"
+        },
+        {
+          "step": 3,
+          "action": "Get Pending Products",
+          "endpoint": "GET /api/platform/products/pending",
+          "description": "Retrieve list of all products awaiting approval"
+        },
+        {
+          "step": 4,
+          "action": "Review Product Details",
+          "description": "Examine product information from the list"
+        },
+        {
+          "step": 5,
+          "action": "Approve or Reject",
+          "endpoints": [
+            "PATCH /api/platform/products/:id/approve",
+            "PATCH /api/platform/products/:id/reject"
+          ],
+          "description": "Make approval decision with optional notes/reason"
+        },
+        {
+          "step": 6,
+          "action": "Email Sent Automatically",
+          "description": "System sends email notification to product submitter"
+        }
+      ]
+    },
+    {
+      "name": "Monitor Company Activity",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Get All Companies",
+          "endpoint": "GET /api/platform/companies",
+          "description": "View list of all companies with basic stats"
+        },
+        {
+          "step": 2,
+          "action": "Select Company",
+          "description": "Choose a company to analyze"
+        },
+        {
+          "step": 3,
+          "action": "Get Detailed Usage",
+          "endpoint": "GET /api/platform/companies/:id/usage",
+          "description": "View detailed statistics and recent orders"
+        }
+      ]
+    },
+    {
+      "name": "Create Global Product",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Prepare Product Data",
+          "description": "Gather product name, category, description, and image"
+        },
+        {
+          "step": 2,
+          "action": "Upload Global Product",
+          "endpoint": "POST /api/platform/products/global",
+          "description": "Create product with isGlobal: true"
+        },
+        {
+          "step": 3,
+          "action": "Product Auto-Approved",
+          "description": "Product instantly visible to all companies"
+        },
+        {
+          "step": 4,
+          "action": "Notifications Sent",
+          "description": "All company owners notified of new global product"
+        }
+      ]
+    }
+  ],
+
+  "notes": [
+    "All timestamps are in ISO 8601 format (UTC)",
+    "ObjectIds are MongoDB's 24-character hexadecimal strings",
+    "Image uploads use ImageKit CDN for storage",
+    "Email notifications are sent asynchronously",
+    "Pagination defaults to 20 items per page",
+    "Product status transitions: pending → approved OR pending → rejected → resubmitted → pending",
+    "Global products always have companyName: 'GLOBAL' and status: 'approved'",
+    "Platform owners don't need company context for these endpoints",
+    "All endpoints return JSON responses",
+    "File uploads must use multipart/form-data content type"
+  ],
+
+  "rateLimits": {
+    "description": "Rate limiting is applied to prevent abuse",
+    "note": "Check with backend team for current limits"
+  },
+
+  "support": {
+    "documentation": "Contact backend team for additional API documentation",
+    "issues": "Report issues to backend development team"
+  }
+}

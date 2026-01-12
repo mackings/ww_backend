@@ -113,10 +113,13 @@ exports.signin = async (req, res) => {
       return ApiResponse.error(res, 'Your account has been deactivated. Please contact support.', 403);
     }
 
-    // ✅ Check if user has access to at least one company
-    const hasAccess = user.companies && user.companies.some(company => company.accessGranted);
-    if (!hasAccess) {
-      return ApiResponse.error(res, 'Your access has been revoked. Please contact your administrator.', 403);
+    // ✅ Skip company access checks for platform owners
+    if (!user.isPlatformOwner) {
+      // ✅ Check if user has access to at least one company
+      const hasAccess = user.companies && user.companies.some(company => company.accessGranted);
+      if (!hasAccess) {
+        return ApiResponse.error(res, 'Your access has been revoked. Please contact your administrator.', 403);
+      }
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -125,12 +128,15 @@ exports.signin = async (req, res) => {
     }
 
     // ✅ Set active company to the first one with access (if current one is revoked)
-    const currentActiveCompany = user.companies[user.activeCompanyIndex];
-    if (!currentActiveCompany || !currentActiveCompany.accessGranted) {
-      const firstAccessibleCompanyIndex = user.companies.findIndex(c => c.accessGranted);
-      if (firstAccessibleCompanyIndex !== -1) {
-        user.activeCompanyIndex = firstAccessibleCompanyIndex;
-        await user.save();
+    // Only for non-platform owners
+    if (!user.isPlatformOwner && user.companies && user.companies.length > 0) {
+      const currentActiveCompany = user.companies[user.activeCompanyIndex];
+      if (!currentActiveCompany || !currentActiveCompany.accessGranted) {
+        const firstAccessibleCompanyIndex = user.companies.findIndex(c => c.accessGranted);
+        if (firstAccessibleCompanyIndex !== -1) {
+          user.activeCompanyIndex = firstAccessibleCompanyIndex;
+          await user.save();
+        }
       }
     }
 
@@ -144,6 +150,7 @@ exports.signin = async (req, res) => {
         email: user.email,
         phoneNumber: user.phoneNumber,
         isVerified: user.isVerified,
+        isPlatformOwner: user.isPlatformOwner,
         companies: user.companies,
         activeCompanyIndex: user.activeCompanyIndex,
         activeCompany: user.getActiveCompany(),

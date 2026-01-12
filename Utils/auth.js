@@ -46,3 +46,32 @@ exports.protect = async (req, res, next) => {
     });
   }
 };
+
+/**
+ * Middleware to require platform owner role
+ */
+exports.requirePlatformOwner = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized to access this route'
+      });
+    }
+
+    if (!req.user.isPlatformOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: Platform Owner role required'
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Platform owner check error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error in authorization'
+    });
+  }
+};

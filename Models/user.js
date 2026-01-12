@@ -29,8 +29,19 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
-  
-  
+
+  // Platform Owner fields
+  isPlatformOwner: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  platformOwnerSince: {
+    type: Date,
+    default: null
+  },
+
+
   // Multiple Companies Support
   companies: [{
     name: {

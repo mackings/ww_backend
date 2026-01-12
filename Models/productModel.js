@@ -28,6 +28,62 @@ const productSchema = new mongoose.Schema({
   subCategory: String,
   description: String,
   image: String,
+
+  // Approval workflow fields
+  isGlobal: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending',
+    index: true
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  approvedAt: {
+    type: Date,
+    default: null
+  },
+  rejectionReason: {
+    type: String,
+    default: null
+  },
+  submittedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  submittedAt: {
+    type: Date,
+    default: Date.now
+  },
+  resubmissionCount: {
+    type: Number,
+    default: 0
+  },
+  approvalHistory: [{
+    action: {
+      type: String,
+      enum: ['submitted', 'approved', 'rejected', 'resubmitted']
+    },
+    performedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    performedByName: String,
+    reason: String,
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+
   createdAt: {
     type: Date,
     default: Date.now
@@ -44,6 +100,10 @@ const productSchema = new mongoose.Schema({
 productSchema.index({ companyName: 1, productId: 1 }, { unique: true, sparse: true });
 productSchema.index({ companyName: 1, category: 1 });
 productSchema.index({ companyName: 1, createdAt: -1 });
+// New indexes for approval workflow
+productSchema.index({ isGlobal: 1, status: 1 });
+productSchema.index({ status: 1, createdAt: -1 });
+productSchema.index({ submittedBy: 1 });
 
 module.exports = mongoose.model('Product', productSchema);
 

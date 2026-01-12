@@ -21,10 +21,11 @@ router.post('/material/:materialId/calculate-cost', productController.calculateM
 router.get('/categories', productController.getCategories);
 
 // ✅ Product CRUD routes
-router.post('/', upload.single("image"), productController.createProduct); 
+router.post('/', upload.single("image"), productController.createProduct);
 router.get('/', productController.getAllProducts);
 router.get('/:id', productController.getProduct);
 router.put('/:id', upload.single("image"), productController.updateProduct);
+router.patch('/:id/resubmit', upload.single("image"), productController.resubmitProduct);
 router.delete('/:id', productController.deleteProduct);
 
 
