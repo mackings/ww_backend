@@ -9,7 +9,7 @@ const { notifyCompany } = require('../../Utils/NotHelper');
 
 exports.createBOM = async (req, res) => {
   try {
-    const { name, description, materials, additionalCosts, productId } = req.body;
+    const { name, description, materials, additionalCosts, productId, dueDate } = req.body;
 
     if (!name || !materials || materials.length === 0 || !productId) {
       return res.status(400).json({
@@ -21,7 +21,10 @@ exports.createBOM = async (req, res) => {
     // Find product using productId (custom ID like PRD-XXXX)
     const product = await Product.findOne({
       productId: productId,
-      companyName: req.companyName // ✅ Filter by company
+      $or: [
+        { companyName: req.companyName },
+        { isGlobal: true, status: 'approved' }
+      ]
     });
 
     if (!product) {
@@ -71,6 +74,7 @@ exports.createBOM = async (req, res) => {
       description,
       materials: updatedMaterials,
       additionalCosts: additionalCosts || [],
+      dueDate: dueDate || null,
       materialsCost: Number(materialsCost.toFixed(2)),
       additionalCostsTotal: Number(additionalCostsTotal.toFixed(2)),
       totalCost: Number(totalCost.toFixed(2))
@@ -238,7 +242,7 @@ exports.updateBOM = async (req, res) => {
       });
     }
 
-    const { name, description, materials, additionalCosts } = req.body;
+    const { name, description, materials, additionalCosts, dueDate } = req.body;
 
     // Store old values
     const oldName = bom.name;
@@ -284,6 +288,7 @@ exports.updateBOM = async (req, res) => {
 
     if (name) bom.name = name;
     if (description) bom.description = description;
+    if (dueDate !== undefined) bom.dueDate = dueDate;
 
     await bom.save();
 

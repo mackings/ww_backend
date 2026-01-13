@@ -78,6 +78,12 @@ const quotationSchema = new mongoose.Schema({
       default: 'Day'
     }
   },
+
+  // Optional deadline for reminders
+  dueDate: {
+    type: Date,
+    default: null
+  },
   
   // ✅ NEW: Cost breakdown fields
   costPrice: {

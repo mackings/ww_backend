@@ -73,6 +73,11 @@ const notificationSchema = new mongoose.Schema({
       'material_created',
       'material_updated',
       'material_deleted',
+      'material_submitted_for_approval',
+      'material_approved',
+      'material_rejected',
+      'material_resubmitted',
+      'global_material_added',
       
       // Overhead cost events
       'overhead_cost_created',

@@ -44,16 +44,86 @@ const materialSchema = new mongoose.Schema({
     index: true
   },
 
-  name: { 
-    type: String, 
+  // ✅ Global Material Support
+  isGlobal: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+
+  // ✅ Approval Workflow
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending',
+    index: true
+  },
+
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
+  approvedAt: {
+    type: Date,
+    default: null
+  },
+
+  rejectionReason: {
+    type: String,
+    default: null
+  },
+
+  submittedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+
+  submittedAt: {
+    type: Date,
+    default: Date.now
+  },
+
+  resubmissionCount: {
+    type: Number,
+    default: 0
+  },
+
+  approvalHistory: [{
+    action: {
+      type: String,
+      enum: ['submitted', 'approved', 'rejected', 'resubmitted']
+    },
+    performedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    performedByName: String,
+    reason: String,
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+
+  name: {
+    type: String,
     required: true,
     trim: true
   }, // e.g., "Wood", "Board", "Foam", "Marble"
-  
+
   category: {
     type: String,
     enum: ['WOOD', 'BOARD', 'FOAM', 'MARBLE', 'HARDWARE', 'FABRIC', 'OTHER'],
     required: true
+  },
+
+  // ✅ Material Image
+  image: {
+    type: String,
+    default: null
   },
 
   // Standard Dimensions (for sheet materials)
@@ -129,6 +199,9 @@ const materialSchema = new mongoose.Schema({
 materialSchema.index({ name: 1, category: 1 });
 materialSchema.index({ 'types.name': 1 });
 materialSchema.index({ isActive: 1 });
+materialSchema.index({ isGlobal: 1, status: 1 });
+materialSchema.index({ status: 1, createdAt: -1 });
+materialSchema.index({ submittedBy: 1 });
 
 // Virtual for display name
 materialSchema.virtual('displayName').get(function() {

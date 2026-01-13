@@ -265,10 +265,16 @@ exports.getAllProducts = async (req, res) => {
  */
 exports.getProduct = async (req, res) => {
   try {
-    const product = await Product.findOne({
-      _id: req.params.id,
-      companyName: req.companyName // ✅ Filter by company
-    });
+    const baseFilter = { _id: req.params.id };
+    const accessFilter = req.isPlatformOwner
+      ? {}
+      : {
+          $or: [
+            { companyName: req.companyName },
+            { isGlobal: true, status: 'approved' }
+          ]
+        };
+    const product = await Product.findOne({ ...baseFilter, ...accessFilter });
 
     if (!product) {
       return res.status(404).json({
@@ -537,8 +543,11 @@ exports.deleteProduct = async (req, res) => {
  */
 exports.getCategories = async (req, res) => {
   try {
-    const categories = await Product.distinct('category', { 
-      companyName: req.companyName // ✅ Filter by company
+    const categories = await Product.distinct('category', {
+      $or: [
+        { companyName: req.companyName },
+        { isGlobal: true, status: 'approved' }
+      ]
     });
 
     res.status(200).json({
@@ -564,18 +573,22 @@ exports.getCategories = async (req, res) => {
 exports.getMaterials = async (req, res) => {
   try {
     const { category, isActive = true } = req.query;
-    
-    const filter = { 
-      companyName: req.companyName, // ✅ Filter by company
-      isActive 
+
+    // Build query to include company materials + approved global materials
+    const query = {
+      $or: [
+        { companyName: req.companyName, status: 'approved' },
+        { isGlobal: true, status: 'approved' }
+      ],
+      isActive
     };
-    
+
     if (category) {
-      filter.category = category.toUpperCase();
+      query.category = category.toUpperCase();
     }
-    
-    const materials = await Material.find(filter).sort({ category: 1, name: 1 });
-    
+
+    const materials = await Material.find(query).sort({ category: 1, name: 1 });
+
     res.status(200).json({
       success: true,
       count: materials.length,
@@ -597,7 +610,7 @@ exports.getMaterials = async (req, res) => {
  */
 exports.createMaterial = async (req, res) => {
   try {
-    const { 
+    const {
       name,
       category,
       standardWidth,
@@ -612,8 +625,42 @@ exports.createMaterial = async (req, res) => {
       commonThicknesses,
       wasteThreshold,
       unit,
-      notes
+      notes,
+      isGlobal
     } = req.body;
+
+    const parseJsonArray = (value, fieldName) => {
+      if (value === undefined || value === null || value === '') return [];
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          if (!Array.isArray(parsed)) {
+            throw new Error(`${fieldName} must be an array`);
+          }
+          return parsed;
+        } catch (error) {
+          throw new Error(`${fieldName} must be a valid JSON array`);
+        }
+      }
+      throw new Error(`${fieldName} must be an array`);
+    };
+
+    let parsedTypes;
+    let parsedSizeVariants;
+    let parsedFoamVariants;
+    let parsedCommonThicknesses;
+    try {
+      parsedTypes = parseJsonArray(types, 'types');
+      parsedSizeVariants = parseJsonArray(sizeVariants, 'sizeVariants');
+      parsedFoamVariants = parseJsonArray(foamVariants, 'foamVariants');
+      parsedCommonThicknesses = parseJsonArray(commonThicknesses, 'commonThicknesses');
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
 
     // Validation
     if (!name || !category) {
@@ -633,45 +680,90 @@ exports.createMaterial = async (req, res) => {
       }
     }
 
+    // Platform owners default to global materials; non-platform users always submit for approval
+    const isGlobalFlag = isGlobal === true || isGlobal === 'true' || isGlobal === 1 || isGlobal === '1';
+    const isGlobalMaterial = req.user.isPlatformOwner
+      ? (isGlobal === undefined ? true : isGlobalFlag)
+      : false;
+
+    // Handle image upload
+    let imageUrl = null;
+    if (req.file) {
+      const uploadResult = await imagekit.upload({
+        file: req.file.buffer.toString("base64"),
+        fileName: `material_${Date.now()}_${req.file.originalname}`,
+        folder: '/materials'
+      });
+      imageUrl = uploadResult.url;
+    }
+
     const material = new Material({
       name,
-      companyName: req.companyName, // ✅ Add company name
+      companyName: isGlobalMaterial ? 'GLOBAL' : req.companyName,
       category: category.toUpperCase(),
+      image: imageUrl,
       standardWidth,
       standardLength,
       standardUnit: standardUnit || 'inches',
       pricePerSqm,
       pricePerUnit,
       pricingUnit: pricingUnit || 'sqm',
-      types: types || [],
-      sizeVariants: sizeVariants || [],
-      foamVariants: foamVariants || [],
-      commonThicknesses: commonThicknesses || [], 
+      types: parsedTypes,
+      sizeVariants: parsedSizeVariants,
+      foamVariants: parsedFoamVariants,
+      commonThicknesses: parsedCommonThicknesses,
       wasteThreshold: wasteThreshold || 0.75,
       unit,
-      notes
+      notes,
+      isGlobal: isGlobalMaterial,
+      status: isGlobalMaterial ? 'approved' : 'pending',
+      submittedBy: req.user._id,
+      approvedBy: isGlobalMaterial ? req.user._id : null,
+      approvedAt: isGlobalMaterial ? new Date() : null,
+      approvalHistory: [{
+        action: isGlobalMaterial ? 'approved' : 'submitted',
+        performedBy: req.user._id,
+        performedByName: req.user.fullname,
+        reason: isGlobalMaterial ? 'Global material - auto approved by platform owner' : 'Initial submission',
+        timestamp: new Date()
+      }]
     });
 
     await material.save();
 
     // Get current user
-    const currentUser = await User.findById(req.user.id);
+    const currentUser = await User.findById(req.user._id);
 
-    // ✅ Notify company members
-    await notifyCompany({
-      companyName: req.companyName,
-      type: 'material_created',
-      title: 'New Material Added',
-      message: `${currentUser.fullname} added a new material: ${name} (${category})`,
-      performedBy: req.user.id,
-      performedByName: currentUser.fullname,
-      metadata: {
-        materialId: material._id,
-        materialName: name,
-        category
-      },
-      excludeUserId: req.user.id
-    });
+    if (isGlobalMaterial) {
+      // Notify all company owners about new global material
+      await notifyAllCompanyOwners({
+        type: 'global_material_added',
+        title: 'New Global Material',
+        message: `Platform added new global material: ${name} (${category})`,
+        performedBy: req.user._id,
+        performedByName: currentUser.fullname,
+        metadata: {
+          materialId: material._id,
+          materialName: name,
+          category
+        }
+      });
+    } else {
+      // Notify platform owners about pending material
+      await notifyPlatformOwners({
+        type: 'material_submitted_for_approval',
+        title: 'Material Pending Approval',
+        message: `${currentUser.fullname} from ${req.companyName} submitted material: ${name} (${category})`,
+        performedBy: req.user._id,
+        performedByName: currentUser.fullname,
+        metadata: {
+          materialId: material._id,
+          materialName: name,
+          companyName: req.companyName,
+          category
+        }
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -723,7 +815,10 @@ exports.calculateMaterialCost = async (req, res) => {
 
     const material = await Material.findOne({
       _id: materialId,
-      companyName: req.companyName // ✅ Filter by company
+      $or: [
+        { companyName: req.companyName, status: 'approved' },
+        { isGlobal: true, status: 'approved' }
+      ]
     });
 
     if (!material) {
@@ -1078,4 +1173,3 @@ exports.deleteMaterial = async (req, res) => {
     });
   }
 };
-

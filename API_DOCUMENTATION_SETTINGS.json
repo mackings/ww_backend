@@ -1,0 +1,91 @@
+{
+  "title": "Company Settings API",
+  "version": "1.0.0",
+  "baseURL": "https://ww-backend.vercel.app/api",
+  "lastUpdated": "2026-01-13",
+  "authentication": {
+    "type": "Bearer Token (JWT)",
+    "header": "Authorization: Bearer <token>",
+    "note": "All endpoints require authentication and company context"
+  },
+  "endpoints": [
+    {
+      "name": "Get Company Settings",
+      "method": "GET",
+      "path": "/settings",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Returns company settings. If none exist, defaults are created.",
+      "request": {
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "response": {
+        "success": true,
+        "message": "Settings fetched successfully",
+        "data": {
+          "_id": "66a1b3cc9a8f9d0022b7c4e1",
+          "companyName": "Acme Ltd",
+          "cloudSyncEnabled": false,
+          "autoBackupEnabled": false,
+          "notifications": {
+            "pushNotification": true,
+            "emailNotification": true,
+            "quotationReminders": true,
+            "projectDeadlines": true,
+            "backupAlerts": true
+          },
+          "updatedBy": "66a1b1f39a8f9d0022b7c3a9",
+          "createdAt": "2026-01-13T10:00:00.000Z",
+          "updatedAt": "2026-01-13T10:00:00.000Z",
+          "__v": 0
+        }
+      }
+    },
+    {
+      "name": "Update Company Settings",
+      "method": "PUT",
+      "path": "/settings",
+      "access": "Company Users (Owner/Admin)",
+      "description": "Updates company settings. Only provided fields are changed.",
+      "request": {
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "cloudSyncEnabled": true,
+          "autoBackupEnabled": true,
+          "notifications": {
+            "pushNotification": true,
+            "emailNotification": false,
+            "quotationReminders": true,
+            "projectDeadlines": false,
+            "backupAlerts": true
+          }
+        }
+      },
+      "response": {
+        "success": true,
+        "message": "Settings updated successfully",
+        "data": {
+          "_id": "66a1b3cc9a8f9d0022b7c4e1",
+          "companyName": "Acme Ltd",
+          "cloudSyncEnabled": true,
+          "autoBackupEnabled": true,
+          "notifications": {
+            "pushNotification": true,
+            "emailNotification": false,
+            "quotationReminders": true,
+            "projectDeadlines": false,
+            "backupAlerts": true
+          },
+          "updatedBy": "66a1b1f39a8f9d0022b7c3a9",
+          "createdAt": "2026-01-13T10:00:00.000Z",
+          "updatedAt": "2026-01-13T10:05:00.000Z",
+          "__v": 0
+        }
+      }
+    }
+  ]
+}

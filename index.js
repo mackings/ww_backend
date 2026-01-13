@@ -14,7 +14,10 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI, {})
-  .then(() => console.log('MongoDB connected successfully'))
+  .then(() => {
+    console.log('MongoDB connected successfully');
+    startReminderScheduler();
+  })
   .catch(err => console.error('MongoDB connection error:', err));
 
 // Routes
@@ -31,6 +34,8 @@ const OCost = require("./Routes/ocRoutes")
 const NotRoutes = require('./Routes/notificationRoutes');
 const permRoutes = require('./Routes/permRoutes');
 const platformRoutes = require('./Routes/platformRoutes');
+const settingsRoutes = require('./Routes/settingsRoutes');
+const { startReminderScheduler } = require('./Utils/reminderScheduler');
 
 
 app.use('/api/auth', authRoutes);
@@ -45,6 +50,7 @@ app.use('/api/oc/', OCost);
 app.use("/api/notifications", NotRoutes);
 app.use("/api/permission", permRoutes);
 app.use('/api/platform', platformRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

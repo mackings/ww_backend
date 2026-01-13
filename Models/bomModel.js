@@ -123,6 +123,12 @@ if (mongoose.models.BOM) {
       default: null
     },
 
+    // Optional deadline for reminders
+    dueDate: {
+      type: Date,
+      default: null
+    },
+
     // Timestamps
     createdAt: {
       type: Date,

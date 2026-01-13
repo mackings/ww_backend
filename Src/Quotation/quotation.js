@@ -23,6 +23,7 @@ exports.createQuotation = async (req, res) => {
       service,
       expectedDuration,
       expectedPeriod,
+      dueDate,
       costPrice,
       overheadCost,
       discount,
@@ -83,6 +84,7 @@ exports.createQuotation = async (req, res) => {
       items,
       service,
       expectedDuration: durationData,
+      dueDate: dueDate || null,
       costPrice: quotationCostPrice,
       overheadCost: quotationOverheadCost,
       discount: discount || 0,
@@ -238,7 +240,8 @@ exports.updateQuotation = async (req, res) => {
       items,
       service,
       discount,
-      status
+      status,
+      dueDate
     } = req.body;
 
     // Store old values
@@ -276,6 +279,7 @@ exports.updateQuotation = async (req, res) => {
     if (service) quotation.service = service;
     if (discount !== undefined) quotation.discount = discount;
     if (status) quotation.status = status;
+    if (dueDate !== undefined) quotation.dueDate = dueDate;
 
     await quotation.save();
 

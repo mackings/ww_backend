@@ -13,7 +13,7 @@ router.use(getActiveCompany);
 //Material Routes
 
 router.get('/materials', productController.getMaterials);
-router.post('/creatematerial', productController.createMaterial);
+router.post('/creatematerial', upload.single("image"), productController.createMaterial);
 router.post('/:materialId/add-types', productController.addMaterialTypes)
 router.post('/material/:materialId/calculate-cost', productController.calculateMaterialCost)
 

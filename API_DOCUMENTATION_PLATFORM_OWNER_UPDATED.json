@@ -1,0 +1,577 @@
+{
+  "title": "Platform Owner Dashboard API Documentation - UPDATED",
+  "version": "2.0.0",
+  "baseURL": "https://your-api-domain.com/api",
+  "description": "Complete API documentation for Platform Owners (App Owners) to manage the entire system, approve products, monitor companies, view all products, and access detailed analytics.",
+  "lastUpdated": "2024-01-18",
+
+  "authentication": {
+    "type": "Bearer Token (JWT)",
+    "header": "Authorization: Bearer <token>",
+    "note": "All endpoints require platform owner authentication. User must have isPlatformOwner: true",
+    "loginEndpoint": "/api/auth/signin",
+    "credentials": {
+      "email": "admin@woodworker.com",
+      "password": "Admin@2024"
+    },
+    "loginExample": {
+      "request": {
+        "method": "POST",
+        "url": "/api/auth/signin",
+        "body": {
+          "email": "admin@woodworker.com",
+          "password": "Admin@2024"
+        }
+      },
+      "response": {
+        "success": true,
+        "message": "Signed in successfully",
+        "data": {
+          "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+          "user": {
+            "id": "6964b6078c3ced74787860b5",
+            "fullname": "Platform Admin",
+            "email": "admin@woodworker.com",
+            "phoneNumber": "+1234567890",
+            "isVerified": true,
+            "isPlatformOwner": true,
+            "companies": [],
+            "activeCompanyIndex": 0,
+            "activeCompany": null
+          }
+        }
+      }
+    }
+  },
+
+  "endpoints": [
+    {
+      "name": "Get Dashboard Statistics",
+      "method": "GET",
+      "path": "/api/platform/dashboard/stats",
+      "description": "Quick dashboard overview with key metrics and recent activity",
+      "authentication": "Required (Platform Owner)",
+      "queryParameters": null,
+      "responseExample": {
+        "success": true,
+        "data": {
+          "stats": {
+            "companies": { "total": 45, "active": 42, "inactive": 3 },
+            "products": { "total": 1250, "pending": 15, "global": 50, "companyProducts": 1200 },
+            "orders": 3420,
+            "quotations": 5680,
+            "users": 230
+          },
+          "recentActivity": {
+            "pendingProducts": [],
+            "recentCompanies": []
+          }
+        }
+      }
+    },
+
+    {
+      "name": "Get Platform Overview (NEW)",
+      "method": "GET",
+      "path": "/api/platform/stats/overview",
+      "description": "Comprehensive platform-wide statistics with breakdowns by status, company, revenue, and trends",
+      "authentication": "Required (Platform Owner)",
+      "queryParameters": null,
+      "responseExample": {
+        "success": true,
+        "data": {
+          "products": {
+            "byStatus": [
+              { "_id": "pending", "count": 15 },
+              { "_id": "approved", "count": 1180 },
+              { "_id": "rejected", "count": 5 }
+            ],
+            "byCompany": [
+              {
+                "_id": "WoodCraft Co.",
+                "total": 85,
+                "pending": 5,
+                "approved": 78,
+                "rejected": 2
+              }
+            ],
+            "global": 50
+          },
+          "orders": {
+            "byStatus": [
+              { "_id": "completed", "count": 2500, "totalAmount": 5250000 },
+              { "_id": "in_progress", "count": 620, "totalAmount": 1340000 },
+              { "_id": "pending", "count": 300, "totalAmount": 680000 }
+            ],
+            "byCompany": [
+              {
+                "_id": "WoodCraft Co.",
+                "totalOrders": 142,
+                "totalRevenue": 285000,
+                "totalPaid": 245000
+              }
+            ]
+          },
+          "users": {
+            "total": 230,
+            "platformOwners": 2,
+            "companyOwners": 45
+          },
+          "companies": {
+            "total": 45,
+            "active": 42
+          },
+          "quotations": {
+            "total": 5680
+          }
+        }
+      }
+    },
+
+    {
+      "name": "Get All Products (NEW)",
+      "method": "GET",
+      "path": "/api/platform/products/all",
+      "description": "View ALL products in the system (approved, pending, rejected, global) with advanced filtering",
+      "authentication": "Required (Platform Owner)",
+      "queryParameters": {
+        "page": { "type": "number", "default": 1 },
+        "limit": { "type": "number", "default": 20 },
+        "status": { "type": "string", "optional": true, "enum": ["pending", "approved", "rejected"] },
+        "companyName": { "type": "string", "optional": true },
+        "category": { "type": "string", "optional": true },
+        "isGlobal": { "type": "boolean", "optional": true },
+        "search": { "type": "string", "optional": true }
+      },
+      "requestExample": "GET /api/platform/products/all?page=1&limit=20&status=approved&companyName=WoodCraft%20Co.",
+      "responseExample": {
+        "success": true,
+        "data": [
+          {
+            "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+            "userId": {
+              "_id": "507f1f77bcf86cd799439011",
+              "fullname": "John Smith",
+              "email": "john@woodcraft.com"
+            },
+            "companyName": "WoodCraft Co.",
+            "name": "Modern Oak Dining Table",
+            "productId": "PRD-A1B2C3",
+            "category": "Furniture",
+            "subCategory": "Dining Tables",
+            "description": "Elegant modern dining table",
+            "image": "https://ik.imagekit.io/mackingsley/products/oak_table.jpg",
+            "isGlobal": false,
+            "status": "approved",
+            "approvedBy": {
+              "_id": "6964b6078c3ced74787860b5",
+              "fullname": "Platform Admin",
+              "email": "admin@woodworker.com"
+            },
+            "approvedAt": "2024-01-15T16:45:00.000Z",
+            "submittedBy": {
+              "_id": "507f1f77bcf86cd799439011",
+              "fullname": "John Smith",
+              "email": "john@woodcraft.com"
+            },
+            "submittedAt": "2024-01-15T14:30:00.000Z",
+            "resubmissionCount": 0,
+            "approvalHistory": [],
+            "createdAt": "2024-01-15T14:30:00.000Z",
+            "updatedAt": "2024-01-15T16:45:00.000Z"
+          }
+        ],
+        "stats": {
+          "pending": 15,
+          "approved": 1180,
+          "rejected": 5
+        },
+        "pagination": {
+          "page": 1,
+          "limit": 20,
+          "total": 1200,
+          "pages": 60
+        }
+      }
+    },
+
+    {
+      "name": "Get Product Details (NEW)",
+      "method": "GET",
+      "path": "/api/platform/products/:productId",
+      "description": "Get detailed information about any product in the system",
+      "authentication": "Required (Platform Owner)",
+      "pathParameters": {
+        "productId": { "type": "string", "required": true }
+      },
+      "requestExample": "GET /api/platform/products/65a1b2c3d4e5f6a7b8c9d0e1",
+      "responseExample": {
+        "success": true,
+        "data": {
+          "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+          "userId": {
+            "_id": "507f1f77bcf86cd799439011",
+            "fullname": "John Smith",
+            "email": "john@woodcraft.com",
+            "phoneNumber": "+1234567890"
+          },
+          "companyName": "WoodCraft Co.",
+          "name": "Modern Oak Dining Table",
+          "productId": "PRD-A1B2C3",
+          "category": "Furniture",
+          "subCategory": "Dining Tables",
+          "description": "Elegant modern dining table made from solid oak",
+          "image": "https://ik.imagekit.io/mackingsley/products/oak_table.jpg",
+          "isGlobal": false,
+          "status": "approved",
+          "approvedBy": {
+            "_id": "6964b6078c3ced74787860b5",
+            "fullname": "Platform Admin",
+            "email": "admin@woodworker.com"
+          },
+          "approvedAt": "2024-01-15T16:45:00.000Z",
+          "rejectionReason": null,
+          "submittedBy": {
+            "_id": "507f1f77bcf86cd799439011",
+            "fullname": "John Smith",
+            "email": "john@woodcraft.com",
+            "phoneNumber": "+1234567890"
+          },
+          "submittedAt": "2024-01-15T14:30:00.000Z",
+          "resubmissionCount": 0,
+          "approvalHistory": [
+            {
+              "action": "submitted",
+              "performedBy": "507f1f77bcf86cd799439011",
+              "performedByName": "John Smith",
+              "reason": null,
+              "timestamp": "2024-01-15T14:30:00.000Z"
+            },
+            {
+              "action": "approved",
+              "performedBy": "6964b6078c3ced74787860b5",
+              "performedByName": "Platform Admin",
+              "reason": "Approved",
+              "timestamp": "2024-01-15T16:45:00.000Z"
+            }
+          ],
+          "createdAt": "2024-01-15T14:30:00.000Z",
+          "updatedAt": "2024-01-15T16:45:00.000Z"
+        }
+      }
+    },
+
+    {
+      "name": "Get All Companies",
+      "method": "GET",
+      "path": "/api/platform/companies",
+      "description": "List all companies with basic statistics",
+      "authentication": "Required (Platform Owner)",
+      "queryParameters": {
+        "page": { "type": "number", "default": 1 },
+        "limit": { "type": "number", "default": 20 },
+        "search": { "type": "string", "optional": true },
+        "isActive": { "type": "boolean", "optional": true }
+      },
+      "responseExample": {
+        "success": true,
+        "data": [
+          {
+            "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+            "name": "WoodCraft Co.",
+            "email": "info@woodcraft.com",
+            "phoneNumber": "+1234567890",
+            "address": "456 Carpenter Ave",
+            "isActive": true,
+            "owner": {
+              "_id": "507f1f77bcf86cd799439011",
+              "fullname": "John Smith",
+              "email": "john@woodcraft.com"
+            },
+            "stats": {
+              "products": 85,
+              "orders": 142,
+              "quotations": 230,
+              "users": 8
+            },
+            "createdAt": "2024-01-10T08:00:00.000Z"
+          }
+        ],
+        "pagination": { "page": 1, "limit": 20, "total": 45, "pages": 3 }
+      }
+    },
+
+    {
+      "name": "Get Company Profile (NEW)",
+      "method": "GET",
+      "path": "/api/platform/companies/:companyId/profile",
+      "description": "Get comprehensive company profile with staff list, detailed statistics, and recent activity",
+      "authentication": "Required (Platform Owner)",
+      "pathParameters": {
+        "companyId": { "type": "string", "required": true }
+      },
+      "requestExample": "GET /api/platform/companies/65a1b2c3d4e5f6a7b8c9d0e2/profile",
+      "responseExample": {
+        "success": true,
+        "data": {
+          "company": {
+            "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+            "name": "WoodCraft Co.",
+            "email": "info@woodcraft.com",
+            "phoneNumber": "+1234567890",
+            "address": "456 Carpenter Ave, Timber City",
+            "isActive": true,
+            "owner": {
+              "_id": "507f1f77bcf86cd799439011",
+              "fullname": "John Smith",
+              "email": "john@woodcraft.com",
+              "phoneNumber": "+1234567890"
+            },
+            "createdAt": "2024-01-10T08:00:00.000Z"
+          },
+          "staff": [
+            {
+              "_id": "507f1f77bcf86cd799439011",
+              "fullname": "John Smith",
+              "email": "john@woodcraft.com",
+              "phoneNumber": "+1234567890",
+              "role": "owner",
+              "position": "Owner",
+              "accessGranted": true,
+              "joinedAt": "2024-01-10T08:00:00.000Z",
+              "permissions": {
+                "quotation": true,
+                "sales": true,
+                "order": true,
+                "database": true,
+                "receipts": true,
+                "invoice": true,
+                "products": true,
+                "boms": true
+              }
+            },
+            {
+              "_id": "507f1f77bcf86cd799439013",
+              "fullname": "Jane Doe",
+              "email": "jane@woodcraft.com",
+              "phoneNumber": "+1234567891",
+              "role": "admin",
+              "position": "Manager",
+              "accessGranted": true,
+              "joinedAt": "2024-01-12T10:00:00.000Z",
+              "permissions": {
+                "quotation": true,
+                "sales": true,
+                "order": true,
+                "products": true
+              }
+            }
+          ],
+          "statistics": {
+            "products": {
+              "total": 85,
+              "pending": 5,
+              "approved": 78,
+              "rejected": 2,
+              "globalAvailable": 50
+            },
+            "orders": {
+              "total": 142,
+              "pending": 12,
+              "inProgress": 45,
+              "completed": 80,
+              "cancelled": 5
+            },
+            "quotations": 230,
+            "staff": 8,
+            "revenue": {
+              "totalRevenue": 285000,
+              "totalPaid": 245000,
+              "totalBalance": 40000
+            }
+          },
+          "recentActivity": {
+            "products": [
+              {
+                "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                "name": "Modern Oak Dining Table",
+                "productId": "PRD-A1B2C3",
+                "category": "Furniture",
+                "status": "approved",
+                "createdAt": "2024-01-15T14:30:00.000Z"
+              }
+            ],
+            "orders": [
+              {
+                "_id": "65a1b2c3d4e5f6a7b8c9d0e4",
+                "orderNumber": "0145",
+                "totalAmount": 5500,
+                "status": "completed",
+                "paymentStatus": "paid",
+                "createdAt": "2024-01-14T11:20:00.000Z"
+              }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "name": "Get Company Usage Statistics",
+      "method": "GET",
+      "path": "/api/platform/companies/:companyId/usage",
+      "description": "Get company usage statistics (lighter version of profile)",
+      "authentication": "Required (Platform Owner)",
+      "pathParameters": {
+        "companyId": { "type": "string", "required": true }
+      },
+      "responseExample": {
+        "success": true,
+        "data": {
+          "company": {},
+          "stats": {
+            "products": { "total": 85, "pending": 5, "approved": 78, "rejected": 2 },
+            "orders": 142,
+            "quotations": 230,
+            "users": 8,
+            "revenue": { "totalRevenue": 285000, "totalPaid": 245000 }
+          },
+          "recentOrders": []
+        }
+      }
+    },
+
+    {
+      "name": "Get Pending Products",
+      "method": "GET",
+      "path": "/api/platform/products/pending",
+      "description": "Get only products pending approval",
+      "authentication": "Required (Platform Owner)",
+      "queryParameters": {
+        "page": { "type": "number", "default": 1 },
+        "limit": { "type": "number", "default": 20 },
+        "companyName": { "type": "string", "optional": true },
+        "category": { "type": "string", "optional": true }
+      },
+      "responseExample": {
+        "success": true,
+        "data": [],
+        "pagination": { "page": 1, "limit": 20, "total": 15, "pages": 1 }
+      }
+    },
+
+    {
+      "name": "Approve Product",
+      "method": "PATCH",
+      "path": "/api/platform/products/:productId/approve",
+      "description": "Approve a pending product",
+      "authentication": "Required (Platform Owner)",
+      "requestBody": {
+        "notes": { "type": "string", "optional": true }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Product approved successfully",
+        "data": {}
+      }
+    },
+
+    {
+      "name": "Reject Product",
+      "method": "PATCH",
+      "path": "/api/platform/products/:productId/reject",
+      "description": "Reject a product with reason",
+      "authentication": "Required (Platform Owner)",
+      "requestBody": {
+        "reason": { "type": "string", "required": true }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Product rejected",
+        "data": {}
+      }
+    },
+
+    {
+      "name": "Create Global Product",
+      "method": "POST",
+      "path": "/api/platform/products/global",
+      "description": "Create a global product visible to all companies",
+      "authentication": "Required (Platform Owner)",
+      "contentType": "multipart/form-data",
+      "requestBody": {
+        "name": { "type": "string", "required": true },
+        "category": { "type": "string", "required": true },
+        "subCategory": { "type": "string", "optional": true },
+        "description": { "type": "string", "optional": true },
+        "image": { "type": "file", "optional": true },
+        "isGlobal": { "type": "boolean", "value": true }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Global product created successfully",
+        "data": {}
+      }
+    }
+  ],
+
+  "endpointSummary": {
+    "totalEndpoints": 11,
+    "new": 4,
+    "categories": {
+      "dashboard": ["GET /dashboard/stats", "GET /stats/overview"],
+      "companies": [
+        "GET /companies",
+        "GET /companies/:id/usage",
+        "GET /companies/:id/profile (NEW)"
+      ],
+      "products": [
+        "GET /products/all (NEW)",
+        "GET /products/pending",
+        "GET /products/:id (NEW)",
+        "PATCH /products/:id/approve",
+        "PATCH /products/:id/reject",
+        "POST /products/global"
+      ]
+    }
+  },
+
+  "useCases": {
+    "viewAllProducts": {
+      "description": "Platform owner needs to see all products across all companies",
+      "endpoint": "GET /api/platform/products/all",
+      "filters": "?status=approved&companyName=WoodCraft"
+    },
+    "companyDeepDive": {
+      "description": "Platform owner needs detailed company information including staff",
+      "endpoint": "GET /api/platform/companies/:id/profile",
+      "returns": "Company info, staff list with roles, detailed stats, recent activity"
+    },
+    "platformAnalytics": {
+      "description": "Platform owner needs system-wide analytics",
+      "endpoint": "GET /api/platform/stats/overview",
+      "returns": "Products by status/company, orders by status/company, revenue breakdown"
+    },
+    "productDetails": {
+      "description": "Platform owner needs to review specific product before approval",
+      "endpoint": "GET /api/platform/products/:id",
+      "returns": "Full product details with approval history"
+    }
+  },
+
+  "quickStart": {
+    "step1": "Login with platform owner credentials",
+    "step2": "GET /api/platform/dashboard/stats - Overview",
+    "step3": "GET /api/platform/companies - See all companies",
+    "step4": "GET /api/platform/companies/:id/profile - Company details",
+    "step5": "GET /api/platform/products/all - See all products",
+    "step6": "GET /api/platform/products/pending - Review approvals",
+    "step7": "PATCH /api/platform/products/:id/approve - Approve products"
+  },
+
+  "testCredentials": {
+    "email": "admin@woodworker.com",
+    "password": "Admin@2024",
+    "userId": "6964b6078c3ced74787860b5"
+  }
+}

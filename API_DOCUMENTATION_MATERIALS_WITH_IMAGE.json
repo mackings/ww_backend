@@ -1,0 +1,415 @@
+{
+  "title": "Material Management API - Image Upload Support",
+  "version": "2.0.0",
+  "baseURL": "https://ww-backend.vercel.app/api",
+  "lastUpdated": "2026-01-13",
+  "changelog": "Added image upload support for material creation",
+
+  "authentication": {
+    "type": "Bearer Token (JWT)",
+    "header": "Authorization: Bearer <token>",
+    "note": "All endpoints require authentication"
+  },
+
+  "endpoints": [
+    {
+      "name": "Create Material with Image (Company User)",
+      "method": "POST",
+      "path": "/product/creatematerial",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "contentType": "multipart/form-data",
+      "description": "Company users create materials with optional image upload. Material requires platform owner approval before becoming visible.",
+
+      "formDataFields": {
+        "required": ["name", "category"],
+        "optional": [
+          "image (file)",
+          "standardWidth",
+          "standardLength",
+          "standardUnit",
+          "pricePerSqm",
+          "pricePerUnit",
+          "pricingUnit",
+          "types (JSON string)",
+          "sizeVariants (JSON string)",
+          "foamVariants (JSON string)",
+          "commonThicknesses (JSON string)",
+          "wasteThreshold",
+          "notes"
+        ]
+      },
+
+      "imageUploadSpecs": {
+        "fieldName": "image",
+        "acceptedFormats": ["image/jpeg", "image/png", "image/jpg", "image/webp"],
+        "maxFileSize": "10MB",
+        "storage": "ImageKit CDN",
+        "folder": "/materials",
+        "note": "Image is optional but recommended for platform owner review"
+      },
+
+      "exampleRequests": [
+        {
+          "scenario": "Creating Wood Material with Image",
+          "contentType": "multipart/form-data",
+          "formData": {
+            "name": "Iroko Wood",
+            "category": "WOOD",
+            "image": "<file upload>",
+            "standardWidth": "48",
+            "standardLength": "96",
+            "standardUnit": "inches",
+            "pricePerSqm": "15000",
+            "types": "[{\"name\":\"Premium Grade\",\"pricePerSqm\":18000},{\"name\":\"Standard Grade\",\"pricePerSqm\":15000}]",
+            "commonThicknesses": "[{\"thickness\":18,\"unit\":\"mm\"},{\"thickness\":25,\"unit\":\"mm\"}]",
+            "wasteThreshold": "0.75",
+            "notes": "High quality hardwood"
+          },
+          "curlExample": "curl -X POST https://ww-backend.vercel.app/api/product/creatematerial \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -F \"name=Iroko Wood\" \\\n  -F \"category=WOOD\" \\\n  -F \"image=@/path/to/image.jpg\" \\\n  -F \"standardWidth=48\" \\\n  -F \"standardLength=96\" \\\n  -F \"standardUnit=inches\" \\\n  -F \"pricePerSqm=15000\" \\\n  -F 'types=[{\"name\":\"Premium Grade\",\"pricePerSqm\":18000}]' \\\n  -F 'commonThicknesses=[{\"thickness\":18,\"unit\":\"mm\"}]'"
+        },
+        {
+          "scenario": "Creating Foam Material with Image",
+          "contentType": "multipart/form-data",
+          "formData": {
+            "name": "Upholstery Foam",
+            "category": "FOAM",
+            "image": "<file upload>",
+            "standardWidth": "60",
+            "standardLength": "72",
+            "standardUnit": "inches",
+            "foamVariants": "[{\"thickness\":2,\"thicknessUnit\":\"inches\",\"density\":\"ordinary\",\"pricePerSqm\":8000},{\"thickness\":3,\"thicknessUnit\":\"inches\",\"density\":\"lemon\",\"pricePerSqm\":12000}]"
+          }
+        },
+        {
+          "scenario": "Creating Hardware without Image",
+          "contentType": "multipart/form-data",
+          "formData": {
+            "name": "Cabinet Handles",
+            "category": "HARDWARE",
+            "pricePerUnit": "500",
+            "pricingUnit": "piece",
+            "notes": "Stainless steel handles"
+          },
+          "note": "Image is optional - material can be created without it"
+        }
+      ],
+
+      "successResponse": {
+        "status": 201,
+        "body": {
+          "success": true,
+          "message": "Material created successfully",
+          "data": {
+            "_id": "60d5ec49eb1c9b2d8c8f1234",
+            "name": "Iroko Wood",
+            "category": "WOOD",
+            "image": "https://ik.imagekit.io/yourapp/materials/material_1736770800000_iroko.jpg",
+            "companyName": "WoodCraft Co.",
+            "status": "pending",
+            "isGlobal": false,
+            "submittedBy": "60d5ec49eb1c9b2d8c8f5678",
+            "submittedAt": "2026-01-13T10:30:00.000Z",
+            "standardWidth": 48,
+            "standardLength": 96,
+            "pricePerSqm": 15000,
+            "approvalHistory": [
+              {
+                "action": "submitted",
+                "performedBy": "60d5ec49eb1c9b2d8c8f5678",
+                "performedByName": "John Doe",
+                "reason": "Initial submission",
+                "timestamp": "2026-01-13T10:30:00.000Z"
+              }
+            ],
+            "createdAt": "2026-01-13T10:30:00.000Z"
+          }
+        }
+      },
+
+      "flutterExample": {
+        "description": "Flutter/Dart code to upload material with image",
+        "code": "import 'package:http/http.dart' as http;\nimport 'package:image_picker/image_picker.dart';\n\nFuture<void> createMaterial({\n  required String name,\n  required String category,\n  File? imageFile,\n  Map<String, dynamic>? otherFields,\n}) async {\n  final uri = Uri.parse('https://ww-backend.vercel.app/api/product/creatematerial');\n  final request = http.MultipartRequest('POST', uri);\n  \n  // Add headers\n  request.headers['Authorization'] = 'Bearer $token';\n  \n  // Add text fields\n  request.fields['name'] = name;\n  request.fields['category'] = category;\n  \n  // Add optional fields\n  if (otherFields != null) {\n    otherFields.forEach((key, value) {\n      request.fields[key] = value.toString();\n    });\n  }\n  \n  // Add image file if provided\n  if (imageFile != null) {\n    final imageStream = http.ByteStream(imageFile.openRead());\n    final imageLength = await imageFile.length();\n    final multipartFile = http.MultipartFile(\n      'image',\n      imageStream,\n      imageLength,\n      filename: imageFile.path.split('/').last,\n    );\n    request.files.add(multipartFile);\n  }\n  \n  // Send request\n  final response = await request.send();\n  final responseData = await response.stream.bytesToString();\n  \n  print('Response: $responseData');\n}"
+      },
+
+      "notes": [
+        "Image upload is OPTIONAL but recommended",
+        "Image helps platform owners verify material quality",
+        "Uploaded to ImageKit CDN in /materials folder",
+        "Image URL returned in response",
+        "Material status starts as 'pending'",
+        "Platform owners notified via email and in-app"
+      ]
+    },
+
+    {
+      "name": "Create Global Material with Image (Platform Owner)",
+      "method": "POST",
+      "path": "/product/creatematerial",
+      "access": "Platform Owners Only",
+      "contentType": "multipart/form-data",
+      "description": "Platform owners create global materials with images that are instantly approved and visible to ALL companies",
+
+      "formDataFields": {
+        "required": ["name", "category", "isGlobal: true"],
+        "optional": ["image (file)", "all other material fields"]
+      },
+
+      "exampleRequest": {
+        "contentType": "multipart/form-data",
+        "formData": {
+          "name": "Premium Mahogany",
+          "category": "WOOD",
+          "isGlobal": "true",
+          "image": "<file upload>",
+          "standardWidth": "48",
+          "standardLength": "96",
+          "standardUnit": "inches",
+          "pricePerSqm": "25000",
+          "types": "[{\"name\":\"Grade A\",\"pricePerSqm\":30000},{\"name\":\"Grade B\",\"pricePerSqm\":25000}]",
+          "commonThicknesses": "[{\"thickness\":18,\"unit\":\"mm\"},{\"thickness\":25,\"unit\":\"mm\"}]",
+          "notes": "Premium quality mahogany for all companies"
+        },
+        "curlExample": "curl -X POST https://ww-backend.vercel.app/api/product/creatematerial \\\n  -H \"Authorization: Bearer PLATFORM_OWNER_TOKEN\" \\\n  -F \"name=Premium Mahogany\" \\\n  -F \"category=WOOD\" \\\n  -F \"isGlobal=true\" \\\n  -F \"image=@/path/to/mahogany.jpg\" \\\n  -F \"standardWidth=48\" \\\n  -F \"pricePerSqm=25000\""
+      },
+
+      "successResponse": {
+        "status": 201,
+        "body": {
+          "success": true,
+          "message": "Material created successfully",
+          "data": {
+            "_id": "60d5ec49eb1c9b2d8c8f9999",
+            "name": "Premium Mahogany",
+            "category": "WOOD",
+            "image": "https://ik.imagekit.io/yourapp/materials/material_1736770900000_mahogany.jpg",
+            "companyName": "GLOBAL",
+            "status": "approved",
+            "isGlobal": true,
+            "submittedBy": "6964b6078c3ced74787860b5",
+            "approvedBy": "6964b6078c3ced74787860b5",
+            "approvedAt": "2026-01-13T10:30:00.000Z",
+            "createdAt": "2026-01-13T10:30:00.000Z"
+          }
+        }
+      },
+
+      "notes": [
+        "Instantly approved (status: 'approved')",
+        "companyName set to 'GLOBAL'",
+        "Visible to ALL companies immediately",
+        "Image visible to all companies",
+        "All company owners notified"
+      ]
+    },
+
+    {
+      "name": "Get Pending Materials (with Images)",
+      "method": "GET",
+      "path": "/platform/materials/pending",
+      "access": "Platform Owners Only",
+      "description": "Get all materials awaiting approval from all companies. Now includes material images for review.",
+
+      "queryParameters": {
+        "page": {
+          "type": "number",
+          "default": 1
+        },
+        "limit": {
+          "type": "number",
+          "default": 20
+        },
+        "companyName": {
+          "type": "string",
+          "optional": true
+        },
+        "category": {
+          "type": "string",
+          "optional": true,
+          "enum": ["WOOD", "BOARD", "FOAM", "MARBLE", "HARDWARE", "FABRIC", "OTHER"]
+        }
+      },
+
+      "exampleRequest": "/platform/materials/pending?page=1&limit=20",
+
+      "successResponse": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "data": [
+            {
+              "_id": "60d5ec49eb1c9b2d8c8f1234",
+              "name": "Iroko Wood",
+              "category": "WOOD",
+              "image": "https://ik.imagekit.io/yourapp/materials/material_1736770800000_iroko.jpg",
+              "companyName": "WoodCraft Co.",
+              "status": "pending",
+              "submittedBy": {
+                "_id": "60d5ec49eb1c9b2d8c8f5678",
+                "fullname": "John Doe",
+                "email": "john@woodcraft.com"
+              },
+              "submittedAt": "2026-01-13T10:30:00.000Z",
+              "standardWidth": 48,
+              "standardLength": 96,
+              "pricePerSqm": 15000,
+              "createdAt": "2026-01-13T10:30:00.000Z"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "limit": 20,
+            "total": 5,
+            "pages": 1
+          }
+        }
+      },
+
+      "notes": [
+        "Image field now included in response",
+        "Image can be null if material was created without image",
+        "Platform owners can view images before approving",
+        "Use image to verify material quality and authenticity"
+      ]
+    },
+
+    {
+      "name": "Get Materials (Company View with Images)",
+      "method": "GET",
+      "path": "/product/materials",
+      "access": "All Company Users",
+      "description": "Get approved company materials and approved global materials. Now includes material images.",
+
+      "queryParameters": {
+        "category": {
+          "type": "string",
+          "optional": true,
+          "enum": ["WOOD", "BOARD", "FOAM", "MARBLE", "HARDWARE", "FABRIC", "OTHER"]
+        },
+        "isActive": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+
+      "exampleRequest": "/product/materials?category=WOOD",
+
+      "successResponse": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "count": 10,
+          "data": [
+            {
+              "_id": "60d5ec49eb1c9b2d8c8f1234",
+              "name": "Iroko Wood",
+              "category": "WOOD",
+              "image": "https://ik.imagekit.io/yourapp/materials/material_1736770800000_iroko.jpg",
+              "companyName": "WoodCraft Co.",
+              "status": "approved",
+              "isGlobal": false,
+              "standardWidth": 48,
+              "standardLength": 96,
+              "pricePerSqm": 15000
+            },
+            {
+              "_id": "60d5ec49eb1c9b2d8c8f9999",
+              "name": "Premium Mahogany",
+              "category": "WOOD",
+              "image": "https://ik.imagekit.io/yourapp/materials/material_1736770900000_mahogany.jpg",
+              "companyName": "GLOBAL",
+              "status": "approved",
+              "isGlobal": true,
+              "standardWidth": 48,
+              "standardLength": 96,
+              "pricePerSqm": 25000
+            }
+          ]
+        }
+      },
+
+      "notes": [
+        "Returns approved company materials + approved global materials",
+        "Image field included for all materials",
+        "Global materials have companyName: 'GLOBAL' and isGlobal: true",
+        "Can display images in material selection UI"
+      ]
+    }
+  ],
+
+  "imageUploadBestPractices": {
+    "recommendations": [
+      "Upload clear, well-lit photos of the actual material",
+      "Use white or neutral background for consistency",
+      "Recommended image dimensions: 800x600 or 1024x768",
+      "Compress images before upload to reduce file size",
+      "Show texture and color accurately",
+      "For wood/board materials: show grain pattern",
+      "For foam materials: show density/thickness",
+      "For hardware: show multiple angles if possible"
+    ],
+    "technicalSpecs": {
+      "maxFileSize": "10MB",
+      "acceptedFormats": ["JPEG", "PNG", "JPG", "WEBP"],
+      "storage": "ImageKit CDN",
+      "compression": "Automatic by ImageKit",
+      "delivery": "Optimized via CDN"
+    }
+  },
+
+  "materialVisibility": {
+    "companyUsers": "See approved company materials + approved global materials (with images)",
+    "platformOwners": "See ALL materials including pending ones with images for review",
+    "imageAccess": "All users with material access can view images"
+  },
+
+  "approvalWorkflow": {
+    "withImage": {
+      "steps": [
+        "1. Company user uploads material with image",
+        "2. Platform owner reviews material and image in pending list",
+        "3. Platform owner approves/rejects based on quality and image",
+        "4. If approved: material with image visible to company",
+        "5. If rejected: company can resubmit with better image"
+      ]
+    },
+    "withoutImage": {
+      "steps": [
+        "1. Company user uploads material without image",
+        "2. Platform owner reviews material (no image available)",
+        "3. Platform owner can still approve/reject",
+        "4. Consider requesting image through rejection message"
+      ]
+    }
+  },
+
+  "migrationNote": {
+    "existingMaterials": "7 existing materials auto-approved without images",
+    "imageField": "New 'image' field added to all materials (nullable)",
+    "backward Compatible": "Old materials without images still work normally"
+  },
+
+  "testCredentials": {
+    "platformOwner": {
+      "email": "admin@woodworker.com",
+      "password": "Admin@2024",
+      "userId": "6964b6078c3ced74787860b5"
+    }
+  },
+
+  "summary": {
+    "changes": [
+      "✅ Added 'image' field to Material model",
+      "✅ Updated createMaterial to handle image upload via multer",
+      "✅ Image uploaded to ImageKit CDN in /materials folder",
+      "✅ Image URL stored in material document",
+      "✅ Pending materials endpoint returns images",
+      "✅ Company materials endpoint returns images",
+      "✅ Backward compatible with materials without images"
+    ],
+    "apiChanges": [
+      "POST /product/creatematerial now accepts multipart/form-data",
+      "New 'image' field in request (optional file upload)",
+      "New 'image' field in response (ImageKit URL or null)"
+    ]
+  }
+}

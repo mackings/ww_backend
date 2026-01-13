@@ -1,0 +1,636 @@
+{
+  "title": "Material Management API Documentation",
+  "version": "1.0.0",
+  "baseURL": "https://ww-backend.vercel.app/api",
+  "description": "Complete API documentation for material creation, approval, and management system",
+
+  "authentication": {
+    "type": "Bearer Token (JWT)",
+    "header": "Authorization: Bearer <token>",
+    "note": "All endpoints require authentication"
+  },
+
+  "materialCategories": {
+    "description": "Supported material categories in the system",
+    "categories": [
+      {
+        "value": "WOOD",
+        "description": "Natural wood materials",
+        "examples": ["Iroko", "Mahogany", "Oak", "Pine", "Teak"],
+        "requiresDimensions": true,
+        "commonProperties": ["types", "commonThicknesses", "pricePerSqm"]
+      },
+      {
+        "value": "BOARD",
+        "description": "Engineered wood boards",
+        "examples": ["MDF", "Plywood", "Chipboard", "Hardboard"],
+        "requiresDimensions": true,
+        "commonProperties": ["commonThicknesses", "pricePerSqm", "types"]
+      },
+      {
+        "value": "FOAM",
+        "description": "Foam materials for upholstery",
+        "examples": ["Ordinary Foam", "Lemon Foam", "Grey Foam"],
+        "requiresDimensions": true,
+        "commonProperties": ["foamVariants", "density", "thickness", "pricePerSqm"]
+      },
+      {
+        "value": "MARBLE",
+        "description": "Stone materials",
+        "examples": ["Granite", "Marble", "Quartz"],
+        "requiresDimensions": true,
+        "commonProperties": ["pricePerSqm", "commonThicknesses"]
+      },
+      {
+        "value": "HARDWARE",
+        "description": "Hardware components",
+        "examples": ["Handles", "Hinges", "Screws", "Nails"],
+        "requiresDimensions": false,
+        "commonProperties": ["pricePerUnit", "pricingUnit"]
+      },
+      {
+        "value": "FABRIC",
+        "description": "Textile materials",
+        "examples": ["Upholstery Fabric", "Leather"],
+        "requiresDimensions": false,
+        "commonProperties": ["pricePerUnit", "pricingUnit"]
+      },
+      {
+        "value": "OTHER",
+        "description": "Other materials not fitting above categories",
+        "examples": ["Adhesives", "Finishes", "Paint"],
+        "requiresDimensions": false,
+        "commonProperties": ["pricePerUnit", "pricingUnit"]
+      }
+    ]
+  },
+
+  "endpoints": [
+    {
+      "name": "Create Material (Company User)",
+      "method": "POST",
+      "path": "/product/creatematerial",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Company users create materials that require platform owner approval before becoming visible",
+
+      "requestBody": {
+        "required": ["name", "category"],
+        "optionalForSheets": ["standardWidth", "standardLength", "standardUnit", "pricePerSqm"],
+        "optionalForHardware": ["pricePerUnit", "pricingUnit"],
+        "allOptional": ["types", "sizeVariants", "foamVariants", "commonThicknesses", "wasteThreshold", "notes"]
+      },
+
+      "exampleRequests": [
+        {
+          "scenario": "Creating Wood Material",
+          "body": {
+            "name": "Iroko Wood",
+            "category": "WOOD",
+            "standardWidth": 48,
+            "standardLength": 96,
+            "standardUnit": "inches",
+            "pricePerSqm": 15000,
+            "types": [
+              {
+                "name": "Premium Grade",
+                "pricePerSqm": 18000
+              },
+              {
+                "name": "Standard Grade",
+                "pricePerSqm": 15000
+              }
+            ],
+            "commonThicknesses": [
+              { "thickness": 18, "unit": "mm" },
+              { "thickness": 25, "unit": "mm" }
+            ],
+            "wasteThreshold": 0.75,
+            "notes": "High quality hardwood"
+          }
+        },
+        {
+          "scenario": "Creating Board Material",
+          "body": {
+            "name": "MDF Board",
+            "category": "BOARD",
+            "standardWidth": 48,
+            "standardLength": 96,
+            "standardUnit": "inches",
+            "pricePerSqm": 5000,
+            "commonThicknesses": [
+              { "thickness": 6, "unit": "mm" },
+              { "thickness": 9, "unit": "mm" },
+              { "thickness": 12, "unit": "mm" },
+              { "thickness": 18, "unit": "mm" }
+            ]
+          }
+        },
+        {
+          "scenario": "Creating Foam Material",
+          "body": {
+            "name": "Upholstery Foam",
+            "category": "FOAM",
+            "standardWidth": 60,
+            "standardLength": 72,
+            "standardUnit": "inches",
+            "foamVariants": [
+              {
+                "thickness": 2,
+                "thicknessUnit": "inches",
+                "density": "ordinary",
+                "pricePerSqm": 8000
+              },
+              {
+                "thickness": 3,
+                "thicknessUnit": "inches",
+                "density": "lemon",
+                "pricePerSqm": 12000
+              },
+              {
+                "thickness": 4,
+                "thicknessUnit": "inches",
+                "density": "grey",
+                "pricePerSqm": 15000
+              }
+            ]
+          }
+        },
+        {
+          "scenario": "Creating Hardware Material",
+          "body": {
+            "name": "Cabinet Handles",
+            "category": "HARDWARE",
+            "pricePerUnit": 500,
+            "pricingUnit": "piece",
+            "notes": "Stainless steel handles"
+          }
+        }
+      ],
+
+      "successResponse": {
+        "status": 201,
+        "body": {
+          "success": true,
+          "message": "Material created successfully",
+          "data": {
+            "_id": "60d5ec49eb1c9b2d8c8f1234",
+            "name": "Iroko Wood",
+            "category": "WOOD",
+            "companyName": "WoodCraft Co.",
+            "status": "pending",
+            "isGlobal": false,
+            "submittedBy": "60d5ec49eb1c9b2d8c8f5678",
+            "submittedAt": "2026-01-13T10:30:00.000Z",
+            "approvalHistory": [
+              {
+                "action": "submitted",
+                "performedBy": "60d5ec49eb1c9b2d8c8f5678",
+                "performedByName": "John Doe",
+                "reason": "Initial submission",
+                "timestamp": "2026-01-13T10:30:00.000Z"
+              }
+            ],
+            "standardWidth": 48,
+            "standardLength": 96,
+            "pricePerSqm": 15000,
+            "createdAt": "2026-01-13T10:30:00.000Z"
+          }
+        }
+      },
+
+      "notes": [
+        "Material starts with status: 'pending'",
+        "Platform owners are notified via email and in-app",
+        "Material NOT visible to company until approved",
+        "Owners/admins can see pending materials in their company"
+      ]
+    },
+
+    {
+      "name": "Create Global Material (Platform Owner)",
+      "method": "POST",
+      "path": "/product/creatematerial",
+      "access": "Platform Owners Only",
+      "description": "Platform owners create global materials that are instantly approved and visible to ALL companies",
+
+      "requestBody": {
+        "required": ["name", "category", "isGlobal: true"],
+        "note": "Must include isGlobal: true to create global material"
+      },
+
+      "exampleRequest": {
+        "body": {
+          "name": "Premium Mahogany",
+          "category": "WOOD",
+          "isGlobal": true,
+          "standardWidth": 48,
+          "standardLength": 96,
+          "standardUnit": "inches",
+          "pricePerSqm": 25000,
+          "types": [
+            {
+              "name": "Grade A",
+              "pricePerSqm": 30000
+            },
+            {
+              "name": "Grade B",
+              "pricePerSqm": 25000
+            }
+          ],
+          "commonThicknesses": [
+            { "thickness": 18, "unit": "mm" },
+            { "thickness": 25, "unit": "mm" },
+            { "thickness": 30, "unit": "mm" }
+          ],
+          "notes": "Premium quality mahogany for all companies"
+        }
+      },
+
+      "successResponse": {
+        "status": 201,
+        "body": {
+          "success": true,
+          "message": "Material created successfully",
+          "data": {
+            "_id": "60d5ec49eb1c9b2d8c8f9999",
+            "name": "Premium Mahogany",
+            "category": "WOOD",
+            "companyName": "GLOBAL",
+            "status": "approved",
+            "isGlobal": true,
+            "submittedBy": "6964b6078c3ced74787860b5",
+            "approvedBy": "6964b6078c3ced74787860b5",
+            "approvedAt": "2026-01-13T10:30:00.000Z",
+            "approvalHistory": [
+              {
+                "action": "approved",
+                "performedBy": "6964b6078c3ced74787860b5",
+                "performedByName": "Platform Admin",
+                "reason": "Global material - auto approved by platform owner",
+                "timestamp": "2026-01-13T10:30:00.000Z"
+              }
+            ],
+            "createdAt": "2026-01-13T10:30:00.000Z"
+          }
+        }
+      },
+
+      "notes": [
+        "Instantly approved (status: 'approved')",
+        "companyName set to 'GLOBAL'",
+        "Visible to ALL companies immediately",
+        "All company owners notified"
+      ]
+    },
+
+    {
+      "name": "Get Pending Materials",
+      "method": "GET",
+      "path": "/platform/materials/pending",
+      "access": "Platform Owners Only",
+      "description": "Get all materials awaiting approval from all companies",
+
+      "queryParameters": {
+        "page": {
+          "type": "number",
+          "default": 1,
+          "description": "Page number for pagination"
+        },
+        "limit": {
+          "type": "number",
+          "default": 20,
+          "description": "Number of materials per page"
+        },
+        "companyName": {
+          "type": "string",
+          "optional": true,
+          "description": "Filter by company name (partial match)"
+        },
+        "category": {
+          "type": "string",
+          "optional": true,
+          "enum": ["WOOD", "BOARD", "FOAM", "MARBLE", "HARDWARE", "FABRIC", "OTHER"],
+          "description": "Filter by material category"
+        }
+      },
+
+      "exampleRequests": [
+        {
+          "scenario": "Get all pending materials",
+          "url": "/platform/materials/pending?page=1&limit=20"
+        },
+        {
+          "scenario": "Filter by company",
+          "url": "/platform/materials/pending?companyName=WoodCraft"
+        },
+        {
+          "scenario": "Filter by category",
+          "url": "/platform/materials/pending?category=WOOD"
+        }
+      ],
+
+      "successResponse": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "data": [
+            {
+              "_id": "60d5ec49eb1c9b2d8c8f1234",
+              "name": "Iroko Wood",
+              "category": "WOOD",
+              "companyName": "WoodCraft Co.",
+              "status": "pending",
+              "submittedBy": {
+                "_id": "60d5ec49eb1c9b2d8c8f5678",
+                "fullname": "John Doe",
+                "email": "john@woodcraft.com"
+              },
+              "submittedAt": "2026-01-13T10:30:00.000Z",
+              "standardWidth": 48,
+              "standardLength": 96,
+              "pricePerSqm": 15000,
+              "approvalHistory": [
+                {
+                  "action": "submitted",
+                  "performedByName": "John Doe",
+                  "timestamp": "2026-01-13T10:30:00.000Z"
+                }
+              ],
+              "createdAt": "2026-01-13T10:30:00.000Z"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "limit": 20,
+            "total": 5,
+            "pages": 1
+          }
+        }
+      }
+    },
+
+    {
+      "name": "Approve Material",
+      "method": "PATCH",
+      "path": "/platform/materials/:materialId/approve",
+      "access": "Platform Owners Only",
+      "description": "Approve a pending material, making it visible to the company",
+
+      "pathParameters": {
+        "materialId": {
+          "type": "string",
+          "description": "MongoDB ObjectId of the material to approve"
+        }
+      },
+
+      "requestBody": {
+        "notes": {
+          "type": "string",
+          "optional": true,
+          "description": "Optional notes for the approval"
+        }
+      },
+
+      "exampleRequest": {
+        "path": "/platform/materials/60d5ec49eb1c9b2d8c8f1234/approve",
+        "body": {
+          "notes": "Good quality material with proper documentation"
+        }
+      },
+
+      "successResponse": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "message": "Material approved successfully",
+          "data": {
+            "_id": "60d5ec49eb1c9b2d8c8f1234",
+            "name": "Iroko Wood",
+            "category": "WOOD",
+            "companyName": "WoodCraft Co.",
+            "status": "approved",
+            "approvedBy": "6964b6078c3ced74787860b5",
+            "approvedAt": "2026-01-13T11:00:00.000Z",
+            "rejectionReason": null,
+            "approvalHistory": [
+              {
+                "action": "submitted",
+                "performedByName": "John Doe",
+                "timestamp": "2026-01-13T10:30:00.000Z"
+              },
+              {
+                "action": "approved",
+                "performedBy": "6964b6078c3ced74787860b5",
+                "performedByName": "Platform Admin",
+                "reason": "Good quality material with proper documentation",
+                "timestamp": "2026-01-13T11:00:00.000Z"
+              }
+            ]
+          }
+        }
+      },
+
+      "sideEffects": [
+        "Material status changed to 'approved'",
+        "Email sent to submitter with approval notification",
+        "In-app notification created for company",
+        "Material now visible to all company users",
+        "Can now be used in quotations and BOMs"
+      ],
+
+      "errorResponses": [
+        {
+          "status": 404,
+          "body": {
+            "success": false,
+            "message": "Material not found"
+          }
+        },
+        {
+          "status": 400,
+          "body": {
+            "success": false,
+            "message": "Only pending materials can be approved"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Reject Material",
+      "method": "PATCH",
+      "path": "/platform/materials/:materialId/reject",
+      "access": "Platform Owners Only",
+      "description": "Reject a pending material with a reason, allowing company to resubmit",
+
+      "pathParameters": {
+        "materialId": {
+          "type": "string",
+          "description": "MongoDB ObjectId of the material to reject"
+        }
+      },
+
+      "requestBody": {
+        "required": ["reason"],
+        "reason": {
+          "type": "string",
+          "description": "Reason for rejection (required)"
+        }
+      },
+
+      "exampleRequest": {
+        "path": "/platform/materials/60d5ec49eb1c9b2d8c8f1234/reject",
+        "body": {
+          "reason": "Incomplete pricing information. Please provide prices for all material types."
+        }
+      },
+
+      "successResponse": {
+        "status": 200,
+        "body": {
+          "success": true,
+          "message": "Material rejected successfully",
+          "data": {
+            "_id": "60d5ec49eb1c9b2d8c8f1234",
+            "name": "Iroko Wood",
+            "category": "WOOD",
+            "companyName": "WoodCraft Co.",
+            "status": "rejected",
+            "rejectionReason": "Incomplete pricing information. Please provide prices for all material types.",
+            "approvalHistory": [
+              {
+                "action": "submitted",
+                "performedByName": "John Doe",
+                "timestamp": "2026-01-13T10:30:00.000Z"
+              },
+              {
+                "action": "rejected",
+                "performedBy": "6964b6078c3ced74787860b5",
+                "performedByName": "Platform Admin",
+                "reason": "Incomplete pricing information. Please provide prices for all material types.",
+                "timestamp": "2026-01-13T11:00:00.000Z"
+              }
+            ]
+          }
+        }
+      },
+
+      "sideEffects": [
+        "Material status changed to 'rejected'",
+        "Email sent to submitter with rejection reason",
+        "In-app notification created for company",
+        "Material NOT visible to regular users",
+        "Company can update and resubmit the material"
+      ],
+
+      "errorResponses": [
+        {
+          "status": 400,
+          "body": {
+            "success": false,
+            "message": "Rejection reason is required"
+          }
+        },
+        {
+          "status": 404,
+          "body": {
+            "success": false,
+            "message": "Material not found"
+          }
+        },
+        {
+          "status": 400,
+          "body": {
+            "success": false,
+            "message": "Only pending materials can be rejected"
+          }
+        }
+      ]
+    }
+  ],
+
+  "workflowDiagrams": {
+    "companyMaterialCreation": {
+      "steps": [
+        "1. Company user creates material via POST /product/creatematerial",
+        "2. Material saved with status: 'pending', isGlobal: false",
+        "3. Platform owners receive notification",
+        "4. Platform owner reviews material",
+        "5a. If approved: status → 'approved', company notified, material visible",
+        "5b. If rejected: status → 'rejected', company notified with reason, can resubmit"
+      ]
+    },
+    "globalMaterialCreation": {
+      "steps": [
+        "1. Platform owner creates material with isGlobal: true",
+        "2. Material auto-approved (status: 'approved', companyName: 'GLOBAL')",
+        "3. All company owners receive notification",
+        "4. Material instantly visible to ALL companies"
+      ]
+    }
+  },
+
+  "materialVisibility": {
+    "description": "Who can see which materials",
+    "rules": [
+      {
+        "role": "Platform Owner",
+        "canSee": "ALL materials (pending, approved, rejected, global, company-specific)"
+      },
+      {
+        "role": "Company Owner/Admin",
+        "canSee": [
+          "All their company materials (pending, approved, rejected)",
+          "Approved global materials"
+        ]
+      },
+      {
+        "role": "Company Staff",
+        "canSee": [
+          "Approved company materials only",
+          "Approved global materials"
+        ]
+      }
+    ]
+  },
+
+  "emailNotifications": {
+    "materialApproved": {
+      "recipient": "Material submitter",
+      "subject": "Material Approved: {materialName}",
+      "includes": [
+        "Material details (name, category, company)",
+        "Approval notes from platform owner (if provided)",
+        "Success message with green theme"
+      ]
+    },
+    "materialRejected": {
+      "recipient": "Material submitter",
+      "subject": "Material Rejected: {materialName}",
+      "includes": [
+        "Material details (name, category, company)",
+        "Rejection reason (required)",
+        "Instructions to resubmit",
+        "Alert message with red theme"
+      ]
+    }
+  },
+
+  "testCredentials": {
+    "platformOwner": {
+      "email": "admin@woodworker.com",
+      "password": "Admin@2024",
+      "userId": "6964b6078c3ced74787860b5",
+      "note": "Use this account to test material approvals/rejections"
+    }
+  },
+
+  "implementationNotes": [
+    "All existing materials (7) were auto-approved during migration",
+    "Material approval workflow matches product approval workflow",
+    "Global materials sync instantly to all companies",
+    "Company materials require approval before becoming visible",
+    "Approval history is tracked for audit purposes",
+    "Resubmission is supported for rejected materials"
+  ]
+}
