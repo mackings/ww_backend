@@ -1,0 +1,651 @@
+{
+  "title": "Database API (Company Data)",
+  "version": "1.0.2",
+  "baseURL": "https://ww-backend.vercel.app/api",
+  "lastUpdated": "2026-01-13",
+  "authentication": {
+    "type": "Bearer Token (JWT)",
+    "header": "Authorization: Bearer <token>",
+    "note": "All endpoints require authentication and company context"
+  },
+  "endpoints": [
+    {
+      "name": "Get Quotations",
+      "method": "GET",
+      "path": "/database/quotations",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Fetch company quotations with pagination and optional search.",
+      "sampleRequest": {
+        "method": "GET",
+        "url": "https://ww-backend.vercel.app/api/database/quotations?page=1&limit=50&search=Acme",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Quotations fetched successfully",
+        "data": {
+          "data": [
+            {
+              "_id": "66a1b3cc9a8f9d0022b7c4e1",
+              "userId": "66a1b1f39a8f9d0022b7c3a9",
+              "companyName": "Acme Ltd",
+              "quotationNumber": "QT-00001",
+              "clientName": "Acme Ltd",
+              "clientAddress": "123 Main St",
+              "nearestBusStop": "Central",
+              "phoneNumber": "1234567890",
+              "email": "client@acme.com",
+              "description": "Custom wardrobe quotation",
+              "items": [
+                {
+                  "woodType": "Iroko",
+                  "foamType": "Lemon",
+                  "width": 10,
+                  "height": 6,
+                  "length": 8,
+                  "thickness": 0.5,
+                  "unit": "ft",
+                  "squareMeter": 4.5,
+                  "quantity": 1,
+                  "costPrice": 60000,
+                  "sellingPrice": 90000,
+                  "description": "Main wardrobe body",
+                  "image": null
+                }
+              ],
+              "service": {
+                "product": "Delivery",
+                "quantity": 1,
+                "discount": 0,
+                "totalPrice": 10000
+              },
+              "expectedDuration": {
+                "value": 14,
+                "unit": "Day"
+              },
+              "dueDate": "2026-01-15T00:00:00.000Z",
+              "costPrice": 60000,
+              "overheadCost": 5000,
+              "discount": 5,
+              "totalCost": 60000,
+              "totalSellingPrice": 65000,
+              "discountAmount": 3250,
+              "finalTotal": 61750,
+              "status": "sent",
+              "createdAt": "2026-01-13T10:00:00.000Z",
+              "updatedAt": "2026-01-13T10:05:00.000Z"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "limit": 50,
+            "total": 1,
+            "pages": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Update Quotation",
+      "method": "PUT",
+      "path": "/database/quotations/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Update a quotation by ID (company scoped).",
+      "sampleRequest": {
+        "method": "PUT",
+        "url": "https://ww-backend.vercel.app/api/database/quotations/66a1b3cc9a8f9d0022b7c4e1",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "clientName": "Acme Updated",
+          "clientAddress": "456 New St",
+          "nearestBusStop": "Downtown",
+          "phoneNumber": "1234567890",
+          "email": "new@acme.com",
+          "description": "Updated quotation description",
+          "items": [
+            {
+              "woodType": "Iroko",
+              "foamType": "Lemon",
+              "width": 10,
+              "height": 6,
+              "length": 8,
+              "thickness": 0.5,
+              "unit": "ft",
+              "squareMeter": 4.5,
+              "quantity": 1,
+              "costPrice": 60000,
+              "sellingPrice": 90000,
+              "description": "Main wardrobe body",
+              "image": null
+            }
+          ],
+          "service": {
+            "product": "Delivery",
+            "quantity": 1,
+            "discount": 0,
+            "totalPrice": 10000
+          },
+          "discount": 5,
+          "status": "approved",
+          "dueDate": "2026-01-15"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Quotation updated successfully",
+        "data": {
+          "_id": "66a1b3cc9a8f9d0022b7c4e1",
+          "clientName": "Acme Updated",
+          "status": "approved",
+          "discount": 5,
+          "dueDate": "2026-01-15T00:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "Delete Quotation",
+      "method": "DELETE",
+      "path": "/database/quotations/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Delete a quotation by ID (company scoped).",
+      "sampleRequest": {
+        "method": "DELETE",
+        "url": "https://ww-backend.vercel.app/api/database/quotations/66a1b3cc9a8f9d0022b7c4e1",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Quotation deleted successfully"
+      }
+    },
+    {
+      "name": "Get BOMs",
+      "method": "GET",
+      "path": "/database/boms",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Fetch company BOMs with pagination and optional search.",
+      "sampleRequest": {
+        "method": "GET",
+        "url": "https://ww-backend.vercel.app/api/database/boms?page=1&limit=50&search=Wardrobe",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "BOMs fetched successfully",
+        "data": {
+          "data": [
+            {
+              "_id": "66a1c4dd9a8f9d0022b7d5f2",
+              "userId": "66a1b1f39a8f9d0022b7c3a9",
+              "companyName": "Acme Ltd",
+              "productId": "66a1c4aa9a8f9d0022b7d5a1",
+              "bomNumber": "BOM-0001",
+              "name": "Wardrobe BOM",
+              "description": "Wardrobe materials",
+              "materials": [
+                {
+                  "name": "MDF",
+                  "type": "Board",
+                  "width": 8,
+                  "length": 4,
+                  "thickness": 0.5,
+                  "unit": "ft",
+                  "squareMeter": 2.9,
+                  "price": 8000,
+                  "quantity": 2,
+                  "description": "Main panels",
+                  "subtotal": 16000
+                }
+              ],
+              "additionalCosts": [
+                {
+                  "name": "Finishing",
+                  "amount": 3000,
+                  "description": "Lacquer"
+                }
+              ],
+              "materialsCost": 16000,
+              "additionalCostsTotal": 3000,
+              "totalCost": 19000,
+              "quotationId": null,
+              "dueDate": "2026-01-15T00:00:00.000Z",
+              "createdAt": "2026-01-13T10:00:00.000Z",
+              "updatedAt": "2026-01-13T10:05:00.000Z"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "limit": 50,
+            "total": 1,
+            "pages": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Update BOM",
+      "method": "PUT",
+      "path": "/database/boms/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Update a BOM by ID (company scoped).",
+      "sampleRequest": {
+        "method": "PUT",
+        "url": "https://ww-backend.vercel.app/api/database/boms/66a1c4dd9a8f9d0022b7d5f2",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "name": "Wardrobe BOM Updated",
+          "description": "Updated description",
+          "materials": [
+            {
+              "name": "MDF",
+              "type": "Board",
+              "width": 8,
+              "length": 4,
+              "thickness": 0.5,
+              "unit": "ft",
+              "squareMeter": 2.9,
+              "price": 8000,
+              "quantity": 2,
+              "description": "Main panels"
+            }
+          ],
+          "additionalCosts": [
+            {
+              "name": "Finishing",
+              "amount": 3000,
+              "description": "Lacquer"
+            }
+          ],
+          "dueDate": "2026-01-15"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "BOM updated successfully",
+        "data": {
+          "_id": "66a1c4dd9a8f9d0022b7d5f2",
+          "name": "Wardrobe BOM Updated",
+          "dueDate": "2026-01-15T00:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "Delete BOM",
+      "method": "DELETE",
+      "path": "/database/boms/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Delete a BOM by ID (company scoped).",
+      "sampleRequest": {
+        "method": "DELETE",
+        "url": "https://ww-backend.vercel.app/api/database/boms/66a1c4dd9a8f9d0022b7d5f2",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "BOM deleted successfully"
+      }
+    },
+    {
+      "name": "Get Clients (Derived)",
+      "method": "GET",
+      "path": "/database/clients",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Returns unique clients derived from quotations.",
+      "sampleRequest": {
+        "method": "GET",
+        "url": "https://ww-backend.vercel.app/api/database/clients",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Clients fetched successfully",
+        "data": [
+          {
+            "clientName": "Acme Ltd",
+            "phoneNumber": "1234567890",
+            "email": "client@acme.com",
+            "clientAddress": "123 Main St",
+            "nearestBusStop": "Central"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Update Client (Syncs Quotations)",
+      "method": "PUT",
+      "path": "/database/clients",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Updates client info across all matching quotations.",
+      "sampleRequest": {
+        "method": "PUT",
+        "url": "https://ww-backend.vercel.app/api/database/clients",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "match": {
+            "clientName": "Acme Ltd",
+            "phoneNumber": "1234567890"
+          },
+          "update": {
+            "clientName": "Acme Updated",
+            "email": "new@acme.com",
+            "clientAddress": "456 New St",
+            "nearestBusStop": "Downtown"
+          }
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Client updated successfully",
+        "data": {
+          "affectedQuotations": 3
+        }
+      }
+    },
+    {
+      "name": "Delete Client (Removes Quotations)",
+      "method": "DELETE",
+      "path": "/database/clients",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Deletes all matching quotations for the client.",
+      "sampleRequest": {
+        "method": "DELETE",
+        "url": "https://ww-backend.vercel.app/api/database/clients",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "match": {
+            "clientName": "Acme Ltd",
+            "email": "client@acme.com"
+          }
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Client deleted successfully",
+        "data": {
+          "deletedQuotations": 3
+        }
+      }
+    },
+    {
+      "name": "Get Staff",
+      "method": "GET",
+      "path": "/database/staff",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Fetch company staff list.",
+      "sampleRequest": {
+        "method": "GET",
+        "url": "https://ww-backend.vercel.app/api/database/staff",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Staff fetched successfully",
+        "data": [
+          {
+            "id": "66a1b1f39a8f9d0022b7c3a9",
+            "fullname": "Jane Doe",
+            "email": "jane@example.com",
+            "phoneNumber": "1234567890",
+            "role": "staff",
+            "position": "Sales",
+            "accessGranted": true,
+            "permissions": {
+              "quotation": true,
+              "sales": true,
+              "order": false,
+              "invoice": false,
+              "products": false,
+              "boms": false
+            },
+            "joinedAt": "2026-01-13T10:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Update Staff",
+      "method": "PUT",
+      "path": "/database/staff/:userId",
+      "access": "Company Users (Owner/Admin)",
+      "description": "Update staff role/position/access/permissions.",
+      "sampleRequest": {
+        "method": "PUT",
+        "url": "https://ww-backend.vercel.app/api/database/staff/66a1b1f39a8f9d0022b7c3a9",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "role": "admin",
+          "position": "Manager",
+          "accessGranted": true,
+          "permissions": {
+            "quotation": true,
+            "order": true,
+            "invoice": true
+          }
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Staff updated successfully"
+      }
+    },
+    {
+      "name": "Delete Staff",
+      "method": "DELETE",
+      "path": "/database/staff/:userId",
+      "access": "Company Users (Owner/Admin)",
+      "description": "Remove staff from the company.",
+      "sampleRequest": {
+        "method": "DELETE",
+        "url": "https://ww-backend.vercel.app/api/database/staff/66a1b1f39a8f9d0022b7c3a9",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Staff removed successfully"
+      }
+    },
+    {
+      "name": "Get Products (Database)",
+      "method": "GET",
+      "path": "/database/products",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Fetch company products with pagination and optional search/category.",
+      "sampleRequest": {
+        "method": "GET",
+        "url": "https://ww-backend.vercel.app/api/database/products?page=1&limit=50&search=Wardrobe&category=Furniture",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Products fetched successfully",
+        "data": {
+          "data": [
+            {
+              "_id": "66a1d5ee9a8f9d0022b7e6a3",
+              "productId": "PRD-ABCD12",
+              "name": "Wardrobe",
+              "category": "Furniture",
+              "subCategory": "Wood",
+              "description": "6ft wardrobe",
+              "image": "https://example.com/wardrobe.jpg",
+              "status": "approved"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "limit": 50,
+            "total": 1,
+            "pages": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Update Product (Database)",
+      "method": "PUT",
+      "path": "/database/products/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Update a company product by ID.",
+      "sampleRequest": {
+        "method": "PUT",
+        "url": "https://ww-backend.vercel.app/api/database/products/66a1d5ee9a8f9d0022b7e6a3",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "name": "Wardrobe Updated",
+          "category": "Furniture",
+          "subCategory": "Wood",
+          "description": "Updated description",
+          "productId": "PRD-ABCD12"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Product updated successfully",
+        "data": {
+          "_id": "66a1d5ee9a8f9d0022b7e6a3",
+          "name": "Wardrobe Updated",
+          "category": "Furniture",
+          "subCategory": "Wood"
+        }
+      }
+    },
+    {
+      "name": "Delete Product (Database)",
+      "method": "DELETE",
+      "path": "/database/products/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Delete a company product by ID.",
+      "sampleRequest": {
+        "method": "DELETE",
+        "url": "https://ww-backend.vercel.app/api/database/products/66a1d5ee9a8f9d0022b7e6a3",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Product deleted successfully"
+      }
+    },
+    {
+      "name": "Get Materials (Database)",
+      "method": "GET",
+      "path": "/database/materials",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Fetch company materials with pagination and optional search/category/status.",
+      "sampleRequest": {
+        "method": "GET",
+        "url": "https://ww-backend.vercel.app/api/database/materials?page=1&limit=50&search=MDF&category=BOARD&status=approved",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Materials fetched successfully",
+        "data": {
+          "data": [
+            {
+              "_id": "66a1e6ff9a8f9d0022b7f7c4",
+              "name": "MDF",
+              "category": "BOARD",
+              "pricePerSqm": 8000,
+              "pricingUnit": "sqm",
+              "status": "approved",
+              "isGlobal": false
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "limit": 50,
+            "total": 1,
+            "pages": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Update Material (Database)",
+      "method": "PUT",
+      "path": "/database/materials/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Update a company material by ID.",
+      "sampleRequest": {
+        "method": "PUT",
+        "url": "https://ww-backend.vercel.app/api/database/materials/66a1e6ff9a8f9d0022b7f7c4",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "name": "MDF Premium",
+          "pricePerSqm": 9000,
+          "standardWidth": 48,
+          "standardLength": 96,
+          "standardUnit": "inches"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Material updated successfully",
+        "data": {
+          "_id": "66a1e6ff9a8f9d0022b7f7c4",
+          "name": "MDF Premium",
+          "pricePerSqm": 9000
+        }
+      }
+    },
+    {
+      "name": "Delete Material (Database)",
+      "method": "DELETE",
+      "path": "/database/materials/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Delete a company material by ID.",
+      "sampleRequest": {
+        "method": "DELETE",
+        "url": "https://ww-backend.vercel.app/api/database/materials/66a1e6ff9a8f9d0022b7f7c4",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Material deleted successfully"
+      }
+    }
+  ]
+}

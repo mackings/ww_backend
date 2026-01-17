@@ -36,6 +36,7 @@ const permRoutes = require('./Routes/permRoutes');
 const platformRoutes = require('./Routes/platformRoutes');
 const settingsRoutes = require('./Routes/settingsRoutes');
 const { startReminderScheduler } = require('./Utils/reminderScheduler');
+const databaseRoutes = require('./Routes/databaseRoutes');
 
 
 app.use('/api/auth', authRoutes);
@@ -51,6 +52,7 @@ app.use("/api/notifications", NotRoutes);
 app.use("/api/permission", permRoutes);
 app.use('/api/platform', platformRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/database', databaseRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

@@ -79,11 +79,17 @@ if (mongoose.models.BOM) {
     required: true,
     index: true
   },
-  
+
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Product',
-      required: true
+      required: false
+    },
+    product: {
+      productId: String,
+      name: String,
+      description: String,
+      image: String
     },
     bomNumber: {
       type: String,
@@ -114,6 +120,46 @@ if (mongoose.models.BOM) {
     totalCost: {
       type: Number,
       default: 0
+    },
+
+    pricing: {
+      pricingMethod: String,
+      markupPercentage: {
+        type: Number,
+        default: 0
+      },
+      materialsTotal: {
+        type: Number,
+        default: 0
+      },
+      additionalTotal: {
+        type: Number,
+        default: 0
+      },
+      overheadCost: {
+        type: Number,
+        default: 0
+      },
+      costPrice: {
+        type: Number,
+        default: 0
+      },
+      sellingPrice: {
+        type: Number,
+        default: 0
+      }
+    },
+
+    expectedDuration: {
+      value: {
+        type: Number,
+        required: false
+      },
+      unit: {
+        type: String,
+        enum: ['Hour', 'Day', 'Week', 'Month'],
+        default: 'Day'
+      }
     },
 
     // Optional quotation link

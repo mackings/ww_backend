@@ -1,84 +1,142 @@
 const BOM = require('../..//Models/bomModel');
 const Product = require('../../Models/productModel');
 const { notifyCompany } = require('../../Utils/NotHelper');
+const User = require('../../Models/user');
 
 // @desc    Create new BOM
 // @route   POST /api/boms
 // @access  Private
 
+const calculateMaterialsTotal = (materials = []) => materials.reduce((sum, material) => {
+  const squareMeter = material.squareMeter || 0;
+  const price = material.price || 0;
+  const quantity = material.quantity || 1;
+  return sum + (price * squareMeter * quantity);
+}, 0);
+
+const calculateAdditionalTotal = (additionalCosts = []) => additionalCosts.reduce(
+  (sum, cost) => sum + (cost.amount || 0),
+  0
+);
+
+const applyPricing = (bom, pricingInput = {}) => {
+  const materialsTotal = pricingInput.materialsTotal !== undefined
+    ? Number(pricingInput.materialsTotal)
+    : calculateMaterialsTotal(bom.materials);
+  const additionalTotal = pricingInput.additionalTotal !== undefined
+    ? Number(pricingInput.additionalTotal)
+    : calculateAdditionalTotal(bom.additionalCosts);
+
+  const overheadCost = pricingInput.overheadCost !== undefined
+    ? Number(pricingInput.overheadCost)
+    : (bom.pricing?.overheadCost || 0);
+
+  const markupPercentage = pricingInput.markupPercentage !== undefined
+    ? Number(pricingInput.markupPercentage)
+    : (bom.pricing?.markupPercentage || 0);
+
+  const costPrice = pricingInput.costPrice !== undefined
+    ? Number(pricingInput.costPrice)
+    : (materialsTotal + additionalTotal + overheadCost);
+
+  const sellingPrice = pricingInput.sellingPrice !== undefined
+    ? Number(pricingInput.sellingPrice)
+    : (costPrice + (costPrice * markupPercentage) / 100);
+
+  bom.pricing = {
+    pricingMethod: pricingInput.pricingMethod || bom.pricing?.pricingMethod || null,
+    markupPercentage,
+    materialsTotal,
+    additionalTotal,
+    overheadCost,
+    costPrice,
+    sellingPrice
+  };
+
+  bom.materialsCost = Number(materialsTotal.toFixed(2));
+  bom.additionalCostsTotal = Number(additionalTotal.toFixed(2));
+  bom.totalCost = Number((materialsTotal + additionalTotal).toFixed(2));
+};
+
 
 exports.createBOM = async (req, res) => {
   try {
-    const { name, description, materials, additionalCosts, productId, dueDate } = req.body;
+    const {
+      name,
+      description,
+      materials,
+      additionalCosts,
+      productId,
+      product,
+      pricing,
+      expectedDuration,
+      dueDate
+    } = req.body;
 
-    if (!name || !materials || materials.length === 0 || !productId) {
+    if (!name || !materials || materials.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide productId, BOM name, and at least one material'
+        message: 'Please provide BOM name and at least one material'
       });
     }
 
-    // Find product using productId (custom ID like PRD-XXXX)
-    const product = await Product.findOne({
-      productId: productId,
-      $or: [
-        { companyName: req.companyName },
-        { isGlobal: true, status: 'approved' }
-      ]
-    });
+    let productSnapshot = null;
+    let productRefId = null;
 
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found for this company'
+    if (productId) {
+      const productRecord = await Product.findOne({
+        productId: productId,
+        $or: [
+          { companyName: req.companyName },
+          { isGlobal: true, status: 'approved' }
+        ]
       });
+
+      if (!productRecord) {
+        return res.status(404).json({
+          success: false,
+          message: 'Product not found for this company'
+        });
+      }
+
+      productSnapshot = {
+        productId: productRecord.productId,
+        name: productRecord.name,
+        description: productRecord.description,
+        image: productRecord.image
+      };
+      productRefId = productRecord._id;
+    } else if (product && typeof product === 'object') {
+      productSnapshot = {
+        productId: product.productId || null,
+        name: product.name || null,
+        description: product.description || null,
+        image: product.image || null
+      };
     }
 
     // Auto-assign product name as material name
     const updatedMaterials = materials.map(mat => ({
       ...mat,
-      name: product.name
+      name: productSnapshot?.name || mat.name
     }));
 
-    // Calculate material and cost totals
-    let materialsCost = 0;
-    updatedMaterials.forEach(material => {
-      const squareMeter = material.squareMeter || 0;
-      const price = material.price || 0;
-      const quantity = material.quantity || 1;
-      materialsCost += price * squareMeter * quantity;
-    });
-
-    let additionalCostsTotal = 0;
-    if (additionalCosts && additionalCosts.length > 0) {
-      additionalCosts.forEach(cost => {
-        additionalCostsTotal += cost.amount || 0;
-      });
-    }
-
-    const totalCost = materialsCost + additionalCostsTotal;
-
     // Create BOM linked to the Product
-    const bom = await BOM.create({
+    const bom = new BOM({
       userId: req.user.id,
       companyName: req.companyName, // ✅ Add company name
-      productId: product._id,
-      productDetails: {
-        name: product.name,
-        category: product.category,
-        subCategory: product.subCategory,
-        description: product.description,
-        image: product.image
-      },
+      productId: productRefId,
+      product: productSnapshot,
       name,
       description,
       materials: updatedMaterials,
       additionalCosts: additionalCosts || [],
       dueDate: dueDate || null,
-      materialsCost: Number(materialsCost.toFixed(2)),
-      additionalCostsTotal: Number(additionalCostsTotal.toFixed(2)),
-      totalCost: Number(totalCost.toFixed(2))
+      expectedDuration: expectedDuration || null
     });
+
+    applyPricing(bom, pricing || {});
+    await bom.save();
 
     // Get current user
     const currentUser = await User.findById(req.user.id);
@@ -88,14 +146,15 @@ exports.createBOM = async (req, res) => {
       companyName: req.companyName,
       type: 'bom_created',
       title: 'New BOM Created',
-      message: `${currentUser.fullname} created a new BOM: ${name} for ${product.name}`,
+      message: `${currentUser.fullname} created a new BOM: ${name}`,
       performedBy: req.user.id,
       performedByName: currentUser.fullname,
       metadata: {
         bomId: bom._id,
         bomName: name,
-        productName: product.name,
-        totalCost: totalCost.toFixed(2)
+        productName: productSnapshot?.name || null,
+        totalCost: bom.totalCost.toFixed(2),
+        sellingPrice: bom.pricing?.sellingPrice?.toFixed(2)
       },
       excludeUserId: req.user.id
     });
@@ -137,7 +196,7 @@ exports.getAllBOMs = async (req, res) => {
     const boms = await BOM.find(query)
       .populate({
         path: "productId",
-        select: "name productId category subCategory description image"
+        select: "name productId description image"
       })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -149,15 +208,17 @@ exports.getAllBOMs = async (req, res) => {
     const formattedBOMs = boms.map(bom => ({
       _id: bom._id,
       userId: bom.userId,
-      productId: bom.productId ? {
-        _id: bom.productId._id,
-        name: bom.productId.name,
+      product: bom.product ? {
+        productId: bom.product.productId || null,
+        name: bom.product.name || null,
+        description: bom.product.description || null,
+        image: bom.product.image || null
+      } : (bom.productId ? {
         productId: bom.productId.productId,
-        category: bom.productId.category,
-        subCategory: bom.productId.subCategory,
+        name: bom.productId.name,
         description: bom.productId.description,
         image: bom.productId.image
-      } : null,
+      } : null),
       name: bom.name,
       description: bom.description,
       materials: bom.materials,
@@ -165,8 +226,11 @@ exports.getAllBOMs = async (req, res) => {
       materialsCost: bom.materialsCost,
       additionalCostsTotal: bom.additionalCostsTotal,
       totalCost: bom.totalCost,
+      pricing: bom.pricing || null,
+      expectedDuration: bom.expectedDuration || null,
       quotationId: bom.quotationId,
       bomNumber: bom.bomNumber,
+      dueDate: bom.dueDate || null,
       createdAt: bom.createdAt,
       updatedAt: bom.updatedAt
     }));
@@ -242,7 +306,16 @@ exports.updateBOM = async (req, res) => {
       });
     }
 
-    const { name, description, materials, additionalCosts, dueDate } = req.body;
+    const {
+      name,
+      description,
+      materials,
+      additionalCosts,
+      dueDate,
+      product,
+      pricing,
+      expectedDuration
+    } = req.body;
 
     // Store old values
     const oldName = bom.name;
@@ -261,34 +334,23 @@ exports.updateBOM = async (req, res) => {
       shouldRecalculate = true;
     }
 
-    if (shouldRecalculate) {
-      // Calculate materials cost
-      let materialsCost = 0;
-      bom.materials.forEach(material => {
-        const squareMeter = material.squareMeter || 0;
-        const price = material.price || 0;
-        const quantity = material.quantity || 1;
-        const materialCost = price * squareMeter * quantity;
-        materialsCost += materialCost;
-      });
-
-      // Calculate additional costs total
-      let additionalCostsTotal = 0;
-      if (bom.additionalCosts && bom.additionalCosts.length > 0) {
-        bom.additionalCosts.forEach(cost => {
-          additionalCostsTotal += cost.amount || 0;
-        });
-      }
-
-      // Update costs
-      bom.materialsCost = Number(materialsCost.toFixed(2));
-      bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
-      bom.totalCost = Number((materialsCost + additionalCostsTotal).toFixed(2));
+    if (product && typeof product === 'object') {
+      bom.product = {
+        productId: product.productId || bom.product?.productId || null,
+        name: product.name || bom.product?.name || null,
+        description: product.description || bom.product?.description || null,
+        image: product.image || bom.product?.image || null
+      };
     }
 
     if (name) bom.name = name;
     if (description) bom.description = description;
     if (dueDate !== undefined) bom.dueDate = dueDate;
+    if (expectedDuration !== undefined) bom.expectedDuration = expectedDuration;
+
+    if (shouldRecalculate || pricing) {
+      applyPricing(bom, pricing || {});
+    }
 
     await bom.save();
 
@@ -413,18 +475,7 @@ exports.addMaterialToBOM = async (req, res) => {
 
     bom.materials.push(material);
 
-    // Recalculate materials cost
-    let materialsCost = 0;
-    bom.materials.forEach(mat => {
-      const squareMeter = mat.squareMeter || 0;
-      const price = mat.price || 0;
-      const quantity = mat.quantity || 1;
-      const materialCost = price * squareMeter * quantity;
-      materialsCost += materialCost;
-    });
-
-    bom.materialsCost = Number(materialsCost.toFixed(2));
-    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
+    applyPricing(bom);
 
     await bom.save();
 
@@ -443,7 +494,8 @@ exports.addMaterialToBOM = async (req, res) => {
         bomId: bom._id,
         bomName: bom.name,
         materialName: material.name || 'New Material',
-        newTotalCost: bom.totalCost.toFixed(2)
+        newTotalCost: bom.totalCost.toFixed(2),
+        sellingPrice: bom.pricing?.sellingPrice?.toFixed(2)
       },
       excludeUserId: req.user.id
     });
@@ -490,18 +542,7 @@ exports.deleteMaterialFromBOM = async (req, res) => {
       material => material._id.toString() !== req.params.materialId
     );
 
-    // Recalculate materials cost
-    let materialsCost = 0;
-    bom.materials.forEach(material => {
-      const squareMeter = material.squareMeter || 0;
-      const price = material.price || 0;
-      const quantity = material.quantity || 1;
-      const materialCost = price * squareMeter * quantity;
-      materialsCost += materialCost;
-    });
-
-    bom.materialsCost = Number(materialsCost.toFixed(2));
-    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
+    applyPricing(bom);
 
     await bom.save();
 
@@ -520,7 +561,8 @@ exports.deleteMaterialFromBOM = async (req, res) => {
         bomId: bom._id,
         bomName: bom.name,
         materialName: materialToDelete?.name || 'Material',
-        newTotalCost: bom.totalCost.toFixed(2)
+        newTotalCost: bom.totalCost.toFixed(2),
+        sellingPrice: bom.pricing?.sellingPrice?.toFixed(2)
       },
       excludeUserId: req.user.id
     });
@@ -569,14 +611,7 @@ exports.addAdditionalCost = async (req, res) => {
 
     bom.additionalCosts.push({ name, amount, description });
 
-    // Recalculate additional costs total
-    let additionalCostsTotal = 0;
-    bom.additionalCosts.forEach(cost => {
-      additionalCostsTotal += cost.amount || 0;
-    });
-
-    bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
-    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
+    applyPricing(bom);
 
     await bom.save();
 
@@ -596,7 +631,8 @@ exports.addAdditionalCost = async (req, res) => {
         bomName: bom.name,
         costName: name,
         costAmount: amount.toFixed(2),
-        newTotalCost: bom.totalCost.toFixed(2)
+        newTotalCost: bom.totalCost.toFixed(2),
+        sellingPrice: bom.pricing?.sellingPrice?.toFixed(2)
       },
       excludeUserId: req.user.id
     });
@@ -643,14 +679,7 @@ exports.deleteAdditionalCost = async (req, res) => {
       cost => cost._id.toString() !== req.params.costId
     );
 
-    // Recalculate additional costs total
-    let additionalCostsTotal = 0;
-    bom.additionalCosts.forEach(cost => {
-      additionalCostsTotal += cost.amount || 0;
-    });
-
-    bom.additionalCostsTotal = Number(additionalCostsTotal.toFixed(2));
-    bom.totalCost = Number((bom.materialsCost + bom.additionalCostsTotal).toFixed(2));
+    applyPricing(bom);
 
     await bom.save();
 
@@ -669,7 +698,8 @@ exports.deleteAdditionalCost = async (req, res) => {
         bomId: bom._id,
         bomName: bom.name,
         costName: costToDelete?.name || 'Cost',
-        newTotalCost: bom.totalCost.toFixed(2)
+        newTotalCost: bom.totalCost.toFixed(2),
+        sellingPrice: bom.pricing?.sellingPrice?.toFixed(2)
       },
       excludeUserId: req.user.id
     });

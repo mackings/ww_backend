@@ -1,0 +1,284 @@
+{
+  "title": "BOM Management API (Refactored)",
+  "version": "3.0.0",
+  "baseURL": "https://ww-backend.vercel.app/api",
+  "lastUpdated": "2026-01-13",
+  "authentication": {
+    "type": "Bearer Token (JWT)",
+    "header": "Authorization: Bearer <token>",
+    "note": "All endpoints require authentication"
+  },
+  "endpoints": [
+    {
+      "name": "Create BOM (Refactored)",
+      "method": "POST",
+      "path": "/bom",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Create a BOM with product snapshot, materials, additional costs, pricing, and expected duration.",
+      "sampleRequest": {
+        "method": "POST",
+        "url": "https://ww-backend.vercel.app/api/bom",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "product": {
+            "productId": "PRD-ABCD12",
+            "name": "Wardrobe",
+            "description": "6ft wardrobe",
+            "image": "https://example.com/wardrobe.jpg"
+          },
+          "name": "Wardrobe BOM",
+          "description": "Wardrobe materials",
+          "materials": [
+            {
+              "name": "MDF",
+              "type": "Board",
+              "width": 8,
+              "length": 4,
+              "thickness": 0.5,
+              "unit": "ft",
+              "squareMeter": 2.9,
+              "price": 8000,
+              "quantity": 2,
+              "description": "Main panels"
+            }
+          ],
+          "additionalCosts": [
+            {
+              "name": "Finishing",
+              "amount": 3000,
+              "description": "Lacquer"
+            }
+          ],
+          "pricing": {
+            "pricingMethod": "Method 1",
+            "markupPercentage": 30,
+            "materialsTotal": 16000,
+            "additionalTotal": 3000,
+            "overheadCost": 5000,
+            "costPrice": 24000,
+            "sellingPrice": 31200
+          },
+          "expectedDuration": {
+            "value": 14,
+            "unit": "Day"
+          },
+          "dueDate": "2026-01-15"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "BOM created successfully",
+        "data": {
+          "_id": "66a1c4dd9a8f9d0022b7d5f2",
+          "companyName": "Acme Ltd",
+          "bomNumber": "BOM-0001",
+          "name": "Wardrobe BOM",
+          "description": "Wardrobe materials",
+          "product": {
+            "productId": "PRD-ABCD12",
+            "name": "Wardrobe",
+            "description": "6ft wardrobe",
+            "image": "https://example.com/wardrobe.jpg"
+          },
+          "materials": [
+            {
+              "name": "MDF",
+              "type": "Board",
+              "width": 8,
+              "length": 4,
+              "thickness": 0.5,
+              "unit": "ft",
+              "squareMeter": 2.9,
+              "price": 8000,
+              "quantity": 2,
+              "description": "Main panels",
+              "subtotal": 16000
+            }
+          ],
+          "additionalCosts": [
+            {
+              "name": "Finishing",
+              "amount": 3000,
+              "description": "Lacquer"
+            }
+          ],
+          "pricing": {
+            "pricingMethod": "Method 1",
+            "markupPercentage": 30,
+            "materialsTotal": 16000,
+            "additionalTotal": 3000,
+            "overheadCost": 5000,
+            "costPrice": 24000,
+            "sellingPrice": 31200
+          },
+          "expectedDuration": {
+            "value": 14,
+            "unit": "Day"
+          },
+          "dueDate": "2026-01-15T00:00:00.000Z",
+          "materialsCost": 16000,
+          "additionalCostsTotal": 3000,
+          "totalCost": 19000,
+          "createdAt": "2026-01-13T10:00:00.000Z",
+          "updatedAt": "2026-01-13T10:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "Update BOM (Refactored)",
+      "method": "PUT",
+      "path": "/bom/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Partial update for BOM fields, pricing, materials, and product snapshot.",
+      "sampleRequest": {
+        "method": "PUT",
+        "url": "https://ww-backend.vercel.app/api/bom/66a1c4dd9a8f9d0022b7d5f2",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "name": "Wardrobe BOM Updated",
+          "product": {
+            "productId": "PRD-ABCD12",
+            "name": "Wardrobe",
+            "description": "6ft wardrobe updated",
+            "image": "https://example.com/wardrobe.jpg"
+          },
+          "materials": [
+            {
+              "name": "MDF",
+              "type": "Board",
+              "width": 8,
+              "length": 4,
+              "thickness": 0.5,
+              "unit": "ft",
+              "squareMeter": 2.9,
+              "price": 8000,
+              "quantity": 2,
+              "description": "Main panels"
+            }
+          ],
+          "additionalCosts": [
+            {
+              "name": "Finishing",
+              "amount": 3000,
+              "description": "Lacquer"
+            }
+          ],
+          "pricing": {
+            "pricingMethod": "Method 1",
+            "markupPercentage": 25,
+            "overheadCost": 5000
+          },
+          "expectedDuration": {
+            "value": 21,
+            "unit": "Day"
+          },
+          "dueDate": "2026-01-17"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "BOM updated successfully",
+        "data": {
+          "_id": "66a1c4dd9a8f9d0022b7d5f2",
+          "name": "Wardrobe BOM Updated",
+          "pricing": {
+            "pricingMethod": "Method 1",
+            "markupPercentage": 25,
+            "materialsTotal": 16000,
+            "additionalTotal": 3000,
+            "overheadCost": 5000,
+            "costPrice": 24000,
+            "sellingPrice": 30000
+          },
+          "expectedDuration": {
+            "value": 21,
+            "unit": "Day"
+          },
+          "dueDate": "2026-01-17T00:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "Get BOMs (Company Scope)",
+      "method": "GET",
+      "path": "/bom",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Fetch BOMs with pricing and totals included.",
+      "sampleRequest": {
+        "method": "GET",
+        "url": "https://ww-backend.vercel.app/api/bom?page=1&limit=50&search=Wardrobe",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "data": [
+          {
+            "_id": "66a1c4dd9a8f9d0022b7d5f2",
+            "bomNumber": "BOM-0001",
+            "name": "Wardrobe BOM",
+            "description": "Wardrobe materials",
+            "product": {
+              "productId": "PRD-ABCD12",
+              "name": "Wardrobe",
+              "description": "6ft wardrobe",
+              "image": "https://example.com/wardrobe.jpg"
+            },
+            "materials": [],
+            "additionalCosts": [],
+            "pricing": {
+              "pricingMethod": "Method 1",
+              "markupPercentage": 30,
+              "materialsTotal": 16000,
+              "additionalTotal": 3000,
+              "overheadCost": 5000,
+              "costPrice": 24000,
+              "sellingPrice": 31200
+            },
+            "expectedDuration": {
+              "value": 14,
+              "unit": "Day"
+            },
+            "materialsCost": 16000,
+            "additionalCostsTotal": 3000,
+            "totalCost": 19000,
+            "dueDate": "2026-01-15T00:00:00.000Z",
+            "createdAt": "2026-01-13T10:00:00.000Z",
+            "updatedAt": "2026-01-13T10:00:00.000Z"
+          }
+        ],
+        "pagination": {
+          "page": 1,
+          "limit": 50,
+          "total": 1,
+          "pages": 1
+        }
+      }
+    },
+    {
+      "name": "Delete BOM",
+      "method": "DELETE",
+      "path": "/bom/:id",
+      "access": "Company Users (Owner/Admin/Staff)",
+      "description": "Delete a BOM by ID (company scoped).",
+      "sampleRequest": {
+        "method": "DELETE",
+        "url": "https://ww-backend.vercel.app/api/bom/66a1c4dd9a8f9d0022b7d5f2",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "BOM deleted successfully"
+      }
+    }
+  ]
+}
