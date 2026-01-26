@@ -5,6 +5,8 @@ const BOM = require('../../Models/bomModel');
 const User = require('../../Models/user');
 const Product = require('../../Models/productModel');
 const Material = require('../../Models/MaterialModel');
+const Invoice = require('../../Models/invoice');
+const Receipt = require('../../Models/receiptModel');
 
 const calculateMaterialsTotal = (materials = []) => materials.reduce((sum, material) => {
   const squareMeter = material.squareMeter || 0;
@@ -1013,5 +1015,307 @@ exports.deleteMaterial = async (req, res) => {
   } catch (error) {
     console.error('Delete material (database) error:', error);
     return ApiResponse.error(res, 'Error deleting material', 500);
+  }
+};
+
+/**
+ * @desc    Get all invoices (company)
+ * @route   GET /api/database/invoices
+ * @access  Private
+ */
+exports.getInvoices = async (req, res) => {
+  try {
+    const companyName = getActiveCompanyOrError(req, res);
+    if (!companyName) return;
+
+    const { page = 1, limit = 50, search, status, paymentStatus } = req.query;
+    const query = { companyName };
+
+    if (status) query.status = status;
+    if (paymentStatus) query.paymentStatus = paymentStatus;
+    if (search) {
+      query.$or = [
+        { clientName: { $regex: search, $options: 'i' } },
+        { invoiceNumber: { $regex: search, $options: 'i' } },
+        { quotationNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const data = await Invoice.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit, 10));
+
+    const total = await Invoice.countDocuments(query);
+    return ApiResponse.success(res, 'Invoices fetched successfully', {
+      data,
+      pagination: buildPagination(page, limit, total)
+    });
+  } catch (error) {
+    console.error('Get invoices (database) error:', error);
+    return ApiResponse.error(res, 'Error fetching invoices', 500);
+  }
+};
+
+/**
+ * @desc    Update invoice (company)
+ * @route   PUT /api/database/invoices/:id
+ * @access  Private
+ */
+exports.updateInvoice = async (req, res) => {
+  try {
+    const companyName = getActiveCompanyOrError(req, res);
+    if (!companyName) return;
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      companyName
+    });
+
+    if (!invoice) {
+      return ApiResponse.error(res, 'Invoice not found', 404);
+    }
+
+    const {
+      clientName,
+      clientAddress,
+      nearestBusStop,
+      phoneNumber,
+      email,
+      description,
+      items,
+      service,
+      discount,
+      status,
+      dueDate,
+      amountPaid,
+      notes
+    } = req.body;
+
+    if (items) {
+      let totalCost = 0;
+      let totalSellingPrice = 0;
+      items.forEach(item => {
+        const qty = item.quantity || 1;
+        totalCost += (item.costPrice || 0) * qty;
+        totalSellingPrice += (item.sellingPrice || 0) * qty;
+      });
+      const discountAmount = discount ? (totalSellingPrice * discount) / 100 : 0;
+      const finalTotal = totalSellingPrice - discountAmount;
+      invoice.totalCost = totalCost;
+      invoice.totalSellingPrice = totalSellingPrice;
+      invoice.discountAmount = discountAmount;
+      invoice.finalTotal = finalTotal;
+    }
+
+    if (clientName) invoice.clientName = clientName;
+    if (clientAddress) invoice.clientAddress = clientAddress;
+    if (nearestBusStop) invoice.nearestBusStop = nearestBusStop;
+    if (phoneNumber) invoice.phoneNumber = phoneNumber;
+    if (email) invoice.email = email;
+    if (description) invoice.description = description;
+    if (items) invoice.items = items;
+    if (service) invoice.service = service;
+    if (discount !== undefined) invoice.discount = discount;
+    if (status) invoice.status = status;
+    if (dueDate !== undefined) invoice.dueDate = dueDate;
+    if (amountPaid !== undefined) invoice.amountPaid = amountPaid;
+    if (notes !== undefined) invoice.notes = notes;
+
+    await invoice.save();
+
+    const currentUser = await User.findById(req.user.id);
+    await notifyCompany({
+      companyName,
+      type: 'invoice_updated',
+      title: 'Invoice Updated',
+      message: `${currentUser.fullname} updated invoice ${invoice.invoiceNumber}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        clientName: invoice.clientName
+      },
+      excludeUserId: req.user.id
+    });
+
+    return ApiResponse.success(res, 'Invoice updated successfully', invoice);
+  } catch (error) {
+    console.error('Update invoice (database) error:', error);
+    return ApiResponse.error(res, 'Error updating invoice', 500);
+  }
+};
+
+/**
+ * @desc    Delete invoice (company)
+ * @route   DELETE /api/database/invoices/:id
+ * @access  Private
+ */
+exports.deleteInvoice = async (req, res) => {
+  try {
+    const companyName = getActiveCompanyOrError(req, res);
+    if (!companyName) return;
+
+    const invoice = await Invoice.findOne({
+      _id: req.params.id,
+      companyName
+    });
+
+    if (!invoice) {
+      return ApiResponse.error(res, 'Invoice not found', 404);
+    }
+
+    const invoiceNumber = invoice.invoiceNumber;
+    await invoice.deleteOne();
+
+    const currentUser = await User.findById(req.user.id);
+    await notifyCompany({
+      companyName,
+      type: 'invoice_deleted',
+      title: 'Invoice Deleted',
+      message: `${currentUser.fullname} deleted invoice ${invoiceNumber}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceNumber
+      },
+      excludeUserId: req.user.id
+    });
+
+    return ApiResponse.success(res, 'Invoice deleted successfully');
+  } catch (error) {
+    console.error('Delete invoice (database) error:', error);
+    return ApiResponse.error(res, 'Error deleting invoice', 500);
+  }
+};
+
+/**
+ * @desc    Get all receipts (company)
+ * @route   GET /api/database/receipts
+ * @access  Private
+ */
+exports.getReceipts = async (req, res) => {
+  try {
+    const companyName = getActiveCompanyOrError(req, res);
+    if (!companyName) return;
+
+    const { page = 1, limit = 50, search } = req.query;
+    const query = { companyName };
+
+    if (search) {
+      query.$or = [
+        { clientName: { $regex: search, $options: 'i' } },
+        { receiptNumber: { $regex: search, $options: 'i' } },
+        { orderNumber: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const data = await Receipt.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit, 10));
+
+    const total = await Receipt.countDocuments(query);
+    return ApiResponse.success(res, 'Receipts fetched successfully', {
+      data,
+      pagination: buildPagination(page, limit, total)
+    });
+  } catch (error) {
+    console.error('Get receipts (database) error:', error);
+    return ApiResponse.error(res, 'Error fetching receipts', 500);
+  }
+};
+
+/**
+ * @desc    Update receipt (company)
+ * @route   PUT /api/database/receipts/:id
+ * @access  Private
+ */
+exports.updateReceipt = async (req, res) => {
+  try {
+    const companyName = getActiveCompanyOrError(req, res);
+    if (!companyName) return;
+
+    const receipt = await Receipt.findOne({
+      _id: req.params.id,
+      companyName
+    });
+
+    if (!receipt) {
+      return ApiResponse.error(res, 'Receipt not found', 404);
+    }
+
+    const { notes, reference, paymentMethod, receiptDate } = req.body;
+
+    if (notes !== undefined) receipt.notes = notes;
+    if (reference !== undefined) receipt.reference = reference;
+    if (paymentMethod !== undefined) receipt.paymentMethod = paymentMethod;
+    if (receiptDate !== undefined) receipt.receiptDate = receiptDate;
+
+    await receipt.save();
+
+    const currentUser = await User.findById(req.user.id);
+    await notifyCompany({
+      companyName,
+      type: 'receipt_updated',
+      title: 'Receipt Updated',
+      message: `${currentUser.fullname} updated receipt ${receipt.receiptNumber}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        receiptId: receipt._id,
+        receiptNumber: receipt.receiptNumber
+      },
+      excludeUserId: req.user.id
+    });
+
+    return ApiResponse.success(res, 'Receipt updated successfully', receipt);
+  } catch (error) {
+    console.error('Update receipt (database) error:', error);
+    return ApiResponse.error(res, 'Error updating receipt', 500);
+  }
+};
+
+/**
+ * @desc    Delete receipt (company)
+ * @route   DELETE /api/database/receipts/:id
+ * @access  Private
+ */
+exports.deleteReceipt = async (req, res) => {
+  try {
+    const companyName = getActiveCompanyOrError(req, res);
+    if (!companyName) return;
+
+    const receipt = await Receipt.findOne({
+      _id: req.params.id,
+      companyName
+    });
+
+    if (!receipt) {
+      return ApiResponse.error(res, 'Receipt not found', 404);
+    }
+
+    const receiptNumber = receipt.receiptNumber;
+    await receipt.deleteOne();
+
+    const currentUser = await User.findById(req.user.id);
+    await notifyCompany({
+      companyName,
+      type: 'receipt_deleted',
+      title: 'Receipt Deleted',
+      message: `${currentUser.fullname} deleted receipt ${receiptNumber}`,
+      performedBy: req.user.id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        receiptNumber
+      },
+      excludeUserId: req.user.id
+    });
+
+    return ApiResponse.success(res, 'Receipt deleted successfully');
+  } catch (error) {
+    console.error('Delete receipt (database) error:', error);
+    return ApiResponse.error(res, 'Error deleting receipt', 500);
   }
 };

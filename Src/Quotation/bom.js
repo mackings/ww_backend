@@ -1,5 +1,6 @@
 const BOM = require('../..//Models/bomModel');
 const Product = require('../../Models/productModel');
+const Counter = require('../../Models/counterModel');
 const { notifyCompany } = require('../../Utils/NotHelper');
 const User = require('../../Models/user');
 
@@ -56,6 +57,44 @@ const applyPricing = (bom, pricingInput = {}) => {
   bom.materialsCost = Number(materialsTotal.toFixed(2));
   bom.additionalCostsTotal = Number(additionalTotal.toFixed(2));
   bom.totalCost = Number((materialsTotal + additionalTotal).toFixed(2));
+};
+
+const syncBomCounter = async () => {
+  const latest = await BOM.findOne({ bomNumber: { $regex: /^BOM-\d+/ } })
+    .sort({ createdAt: -1 })
+    .select('bomNumber')
+    .lean();
+
+  const maxSeq = latest?.bomNumber
+    ? parseInt(String(latest.bomNumber).replace('BOM-', ''), 10)
+    : 0;
+
+  if (Number.isNaN(maxSeq)) return;
+
+  await Counter.findOneAndUpdate(
+    { key: 'bomNumber' },
+    { $max: { seq: maxSeq } },
+    { upsert: true }
+  );
+};
+
+const saveBomWithRetry = async (bom, retries = 2) => {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      await bom.save();
+      return bom;
+    } catch (error) {
+      lastError = error;
+      if (error?.code === 11000 && error?.keyPattern?.bomNumber) {
+        await syncBomCounter();
+        bom.bomNumber = undefined;
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
 };
 
 
@@ -136,7 +175,7 @@ exports.createBOM = async (req, res) => {
     });
 
     applyPricing(bom, pricing || {});
-    await bom.save();
+    await saveBomWithRetry(bom);
 
     // Get current user
     const currentUser = await User.findById(req.user.id);

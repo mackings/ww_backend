@@ -1,12 +1,295 @@
 const Quotation = require('../../Models/quotationModel');
 const BOM = require('../../Models/bomModel');
 const Product = require('../../Models/productModel');
+const Counter = require('../../Models/counterModel');
 const { notifyCompany } = require('../../Utils/NotHelper');
 const User = require("../../Models/user");
 
 // @desc    Create new quotation
 // @route   POST /api/quotations
 // @access  Private
+
+const calculateMaterialsTotal = (materials = []) => materials.reduce((sum, material) => {
+  const squareMeter = material.squareMeter || 0;
+  const price = material.price || 0;
+  const quantity = material.quantity || 1;
+  return sum + (price * squareMeter * quantity);
+}, 0);
+
+const calculateAdditionalTotal = (additionalCosts = []) => additionalCosts.reduce(
+  (sum, cost) => sum + (cost.amount || 0),
+  0
+);
+
+const applyPricing = (bom, pricingInput = {}) => {
+  const materialsTotal = pricingInput.materialsTotal !== undefined
+    ? Number(pricingInput.materialsTotal)
+    : calculateMaterialsTotal(bom.materials);
+  const additionalTotal = pricingInput.additionalTotal !== undefined
+    ? Number(pricingInput.additionalTotal)
+    : calculateAdditionalTotal(bom.additionalCosts);
+
+  const overheadCost = pricingInput.overheadCost !== undefined
+    ? Number(pricingInput.overheadCost)
+    : (bom.pricing?.overheadCost || 0);
+
+  const markupPercentage = pricingInput.markupPercentage !== undefined
+    ? Number(pricingInput.markupPercentage)
+    : (bom.pricing?.markupPercentage || 0);
+
+  const costPrice = pricingInput.costPrice !== undefined
+    ? Number(pricingInput.costPrice)
+    : (materialsTotal + additionalTotal + overheadCost);
+
+  const sellingPrice = pricingInput.sellingPrice !== undefined
+    ? Number(pricingInput.sellingPrice)
+    : (costPrice + (costPrice * markupPercentage) / 100);
+
+  bom.pricing = {
+    pricingMethod: pricingInput.pricingMethod || bom.pricing?.pricingMethod || null,
+    markupPercentage,
+    materialsTotal,
+    additionalTotal,
+    overheadCost,
+    costPrice,
+    sellingPrice
+  };
+
+  bom.materialsCost = Number(materialsTotal.toFixed(2));
+  bom.additionalCostsTotal = Number(additionalTotal.toFixed(2));
+  bom.totalCost = Number((materialsTotal + additionalTotal).toFixed(2));
+};
+
+const syncBomCounter = async () => {
+  const latest = await BOM.findOne({ bomNumber: { $regex: /^BOM-\d+/ } })
+    .sort({ createdAt: -1 })
+    .select('bomNumber')
+    .lean();
+
+  const maxSeq = latest?.bomNumber
+    ? parseInt(String(latest.bomNumber).replace('BOM-', ''), 10)
+    : 0;
+
+  if (Number.isNaN(maxSeq)) return;
+
+  await Counter.findOneAndUpdate(
+    { key: 'bomNumber' },
+    { $max: { seq: maxSeq } },
+    { upsert: true }
+  );
+};
+
+const saveBomWithRetry = async (bom, retries = 2) => {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      await bom.save();
+      return bom;
+    } catch (error) {
+      lastError = error;
+      if (error?.code === 11000 && error?.keyPattern?.bomNumber) {
+        await syncBomCounter();
+        bom.bomNumber = undefined;
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+};
+
+const createBomForQuotation = async ({ bomInput, quotation, req }) => {
+  const {
+    name,
+    description,
+    materials,
+    additionalCosts,
+    productId,
+    product,
+    pricing,
+    expectedDuration,
+    dueDate
+  } = bomInput || {};
+
+  if (!materials || !Array.isArray(materials) || materials.length === 0) {
+    throw new Error('Each BOM must include at least one material');
+  }
+
+  let productSnapshot = null;
+  let productRefId = null;
+
+  if (productId) {
+    const productRecord = await Product.findOne({
+      productId: productId,
+      $or: [
+        { companyName: req.companyName },
+        { isGlobal: true, status: 'approved' }
+      ]
+    });
+
+    if (!productRecord) {
+      throw new Error('Product not found for this company');
+    }
+
+    productSnapshot = {
+      productId: productRecord.productId,
+      name: productRecord.name,
+      description: productRecord.description,
+      image: productRecord.image
+    };
+    productRefId = productRecord._id;
+  } else if (product && typeof product === 'object') {
+    productSnapshot = {
+      productId: product.productId || null,
+      name: product.name || null,
+      description: product.description || null,
+      image: product.image || null
+    };
+  }
+
+  const bomName = name || productSnapshot?.name;
+  if (!bomName) {
+    throw new Error('Each BOM must include a name or valid product');
+  }
+
+  const updatedMaterials = materials.map(mat => ({
+    ...mat,
+    name: productSnapshot?.name || mat.name
+  }));
+
+  if (updatedMaterials.some(mat => !mat.name)) {
+    throw new Error('Each BOM material must include a name');
+  }
+
+  const bomData = {
+    userId: req.user.id,
+    companyName: req.companyName,
+    quotationId: quotation._id,
+    productId: productRefId,
+    product: productSnapshot,
+    name: bomName,
+    description,
+    materials: updatedMaterials,
+    additionalCosts: additionalCosts || [],
+    dueDate: dueDate || null
+  };
+
+  if (
+    expectedDuration &&
+    typeof expectedDuration === 'object' &&
+    expectedDuration.value !== null &&
+    expectedDuration.value !== undefined
+  ) {
+    bomData.expectedDuration = expectedDuration;
+  }
+
+  const bom = new BOM(bomData);
+
+  applyPricing(bom, pricing || {});
+  await saveBomWithRetry(bom);
+  return bom;
+};
+
+const createDefaultBomFromQuotation = async ({ quotation, req, productId, product }) => {
+  let productSnapshot = null;
+  let productRefId = null;
+
+  if (productId) {
+    const productRecord = await Product.findOne({
+      productId: productId,
+      $or: [
+        { companyName: req.companyName },
+        { isGlobal: true, status: 'approved' }
+      ]
+    });
+
+    if (productRecord) {
+      productSnapshot = {
+        productId: productRecord.productId,
+        name: productRecord.name,
+        description: productRecord.description,
+        image: productRecord.image
+      };
+      productRefId = productRecord._id;
+    }
+  } else if (product && typeof product === 'object') {
+    productSnapshot = {
+      productId: product.productId || null,
+      name: product.name || null,
+      description: product.description || null,
+      image: product.image || null
+    };
+  }
+
+  const materials = (quotation.items || []).map(item => {
+    const quantity = item.quantity || 1;
+    const pricePerUnit = quantity > 0 ? (item.costPrice || 0) / quantity : (item.costPrice || 0);
+
+    return {
+      name: item.description || item.woodType || 'Material',
+      woodType: item.woodType || null,
+      foamType: item.foamType || null,
+      width: item.width,
+      height: item.height,
+      length: item.length,
+      thickness: item.thickness,
+      unit: item.unit,
+      squareMeter: item.squareMeter,
+      price: pricePerUnit,
+      quantity,
+      description: item.description || null
+    };
+  });
+
+  if (!productSnapshot) {
+    const firstImage = (quotation.items || []).find(item => item && item.image)?.image || null;
+    if (firstImage) {
+      productSnapshot = {
+        productId: null,
+        name: quotation.description || quotation.clientName || quotation.quotationNumber || 'Quotation BOM',
+        description: quotation.description || null,
+        image: firstImage
+      };
+    }
+  }
+
+  const bomName = productSnapshot?.name || quotation.description || quotation.clientName || quotation.quotationNumber || 'Quotation BOM';
+
+  const bomData = {
+    userId: req.user.id,
+    companyName: req.companyName,
+    quotationId: quotation._id,
+    productId: productRefId,
+    product: productSnapshot,
+    name: bomName,
+    description: `Auto BOM for ${quotation.quotationNumber}`,
+    materials,
+    additionalCosts: [],
+    dueDate: quotation.dueDate || null
+  };
+
+  if (
+    quotation.expectedDuration &&
+    typeof quotation.expectedDuration === 'object' &&
+    quotation.expectedDuration.value !== null &&
+    quotation.expectedDuration.value !== undefined
+  ) {
+    bomData.expectedDuration = quotation.expectedDuration;
+  }
+
+  const bom = new BOM(bomData);
+
+  applyPricing(bom, {
+    materialsTotal: quotation.totalCost || 0,
+    additionalTotal: 0,
+    overheadCost: quotation.overheadCost || 0,
+    costPrice: quotation.costPrice || 0,
+    sellingPrice: quotation.totalSellingPrice || 0
+  });
+
+  await saveBomWithRetry(bom);
+  return bom;
+};
 
 
 
@@ -19,6 +302,8 @@ exports.createQuotation = async (req, res) => {
       phoneNumber,
       email,
       description,
+      productId,
+      product,
       items,
       service,
       expectedDuration,
@@ -27,6 +312,7 @@ exports.createQuotation = async (req, res) => {
       costPrice,
       overheadCost,
       discount,
+      boms
     } = req.body;
 
     // Validation
@@ -95,6 +381,38 @@ exports.createQuotation = async (req, res) => {
       status: 'sent'
     });
 
+    let createdBoms = [];
+    try {
+      const defaultBom = await createDefaultBomFromQuotation({
+        quotation,
+        req,
+        productId,
+        product
+      });
+      createdBoms.push(defaultBom);
+
+      if (boms !== undefined) {
+        if (!Array.isArray(boms) || boms.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'BOMs must be a non-empty array when provided'
+          });
+        }
+
+        const extraBoms = await Promise.all(
+          boms.map(bomInput => createBomForQuotation({ bomInput, quotation, req }))
+        );
+        createdBoms = createdBoms.concat(extraBoms);
+      }
+    } catch (bomError) {
+      await BOM.deleteMany({ quotationId: quotation._id, companyName: req.companyName });
+      await Quotation.deleteOne({ _id: quotation._id, companyName: req.companyName });
+      return res.status(400).json({
+        success: false,
+        message: bomError.message || 'Error creating BOMs for quotation'
+      });
+    }
+
     // Get current user
     const currentUser = await User.findById(req.user.id);
 
@@ -118,7 +436,10 @@ exports.createQuotation = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Quotation created successfully',
-      data: quotation
+      data: {
+        ...quotation.toObject(),
+        boms: createdBoms
+      }
     });
   } catch (error) {
     console.error('Create quotation error:', error);
@@ -156,13 +477,34 @@ exports.getAllQuotations = async (req, res) => {
     const quotations = await Quotation.find(query)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .lean();
+
+    const quotationIds = quotations.map(q => q._id);
+    const boms = quotationIds.length
+      ? await BOM.find({
+        companyName: req.companyName,
+        quotationId: { $in: quotationIds }
+      }).lean()
+      : [];
+
+    const bomsByQuotation = new Map();
+    boms.forEach(bom => {
+      const key = String(bom.quotationId);
+      if (!bomsByQuotation.has(key)) bomsByQuotation.set(key, []);
+      bomsByQuotation.get(key).push(bom);
+    });
+
+    const quotationsWithBoms = quotations.map(q => ({
+      ...q,
+      boms: bomsByQuotation.get(String(q._id)) || []
+    }));
 
     const total = await Quotation.countDocuments(query);
 
     res.status(200).json({
       success: true,
-      data: quotations,
+      data: quotationsWithBoms,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -189,7 +531,7 @@ exports.getQuotation = async (req, res) => {
     const quotation = await Quotation.findOne({
       _id: req.params.id,
       companyName: req.companyName // ✅ Filter by company
-    });
+    }).lean();
 
     if (!quotation) {
       return res.status(404).json({
@@ -198,9 +540,17 @@ exports.getQuotation = async (req, res) => {
       });
     }
 
+    const boms = await BOM.find({
+      companyName: req.companyName,
+      quotationId: quotation._id
+    }).lean();
+
     res.status(200).json({
       success: true,
-      data: quotation
+      data: {
+        ...quotation,
+        boms
+      }
     });
   } catch (error) {
     console.error('Get quotation error:', error);

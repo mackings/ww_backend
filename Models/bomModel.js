@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Counter = require('./counterModel');
 
 // Avoid model overwrite errors in dev
 if (mongoose.models.BOM) {
@@ -92,8 +93,7 @@ if (mongoose.models.BOM) {
       image: String
     },
     bomNumber: {
-      type: String,
-      unique: true
+      type: String
     },
     name: {
       type: String,
@@ -194,8 +194,12 @@ if (mongoose.models.BOM) {
   bomSchema.pre('save', async function (next) {
     // Auto-generate BOM number
     if (!this.bomNumber) {
-      const count = await mongoose.model('BOM').countDocuments();
-      this.bomNumber = `BOM-${(count + 1).toString().padStart(4, '0')}`;
+      const counter = await Counter.findOneAndUpdate(
+        { key: 'bomNumber' },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true }
+      );
+      this.bomNumber = `BOM-${counter.seq.toString().padStart(4, '0')}`;
     }
 
     // Calculate material subtotals
@@ -240,7 +244,7 @@ if (mongoose.models.BOM) {
 
   // Indexes
   bomSchema.index({ userId: 1, createdAt: -1 });
-  bomSchema.index({ bomNumber: 1 });
+  // bomNumber index removed to avoid unique/index constraints at runtime
   bomSchema.index({ productId: 1 });
 
   module.exports = mongoose.model('BOM', bomSchema);

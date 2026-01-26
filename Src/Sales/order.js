@@ -1,8 +1,11 @@
 const Order = require('../../Models/orderModel'); 
 const Quotation = require('../../Models/quotationModel'); 
+const BOM = require('../../Models/bomModel');
+const Receipt = require('../../Models/receiptModel');
 const ApiResponse = require('../../Utils/apiResponse');
 const User = require("../../Models/user");
 const { notifyCompany, notifyUser } = require('../../Utils/NotHelper');
+const { sendEmail } = require('../../Utils/emailUtil');
 
 
 
@@ -35,6 +38,32 @@ exports.createOrderFromQuotation = async (req, res) => {
       return ApiResponse.error(res, 'Order already exists for this quotation', 400);
     }
 
+    const boms = await BOM.find({
+      quotationId: quotation._id,
+      companyName: req.companyName
+    });
+
+    if (!boms.length) {
+      return ApiResponse.error(res, 'No BOMs found for this quotation', 400);
+    }
+
+    const bomSnapshots = boms.map(bom => ({
+      bomId: bom._id,
+      bomNumber: bom.bomNumber,
+      name: bom.name,
+      description: bom.description,
+      productId: bom.productId || null,
+      product: bom.product || null,
+      materials: bom.materials || [],
+      additionalCosts: bom.additionalCosts || [],
+      materialsCost: bom.materialsCost || 0,
+      additionalCostsTotal: bom.additionalCostsTotal || 0,
+      totalCost: bom.totalCost || 0,
+      pricing: bom.pricing || {},
+      expectedDuration: bom.expectedDuration || null,
+      dueDate: bom.dueDate || null
+    }));
+
     const order = new Order({
       userId: req.user._id,
       companyName: req.companyName, // ✅ Add company name
@@ -47,6 +76,8 @@ exports.createOrderFromQuotation = async (req, res) => {
       email: quotation.email,
       description: quotation.description,
       items: quotation.items, 
+      boms: bomSnapshots,
+      bomIds: boms.map(bom => bom._id),
       service: quotation.service,
       discount: quotation.discount,
       totalCost: quotation.totalCost,
@@ -364,6 +395,84 @@ exports.addPayment = async (req, res) => {
 
     const remainingBalance = order.totalAmount - order.amountPaid;
 
+    const receipt = await Receipt.create({
+      userId: req.user._id,
+      companyName: req.companyName,
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      invoiceId: order.invoiceId || null,
+      quotationId: order.quotationId || null,
+      quotationNumber: order.quotationNumber || null,
+      receiptDate: paymentRecord.paymentDate,
+      clientName: order.clientName,
+      clientAddress: order.clientAddress,
+      nearestBusStop: order.nearestBusStop,
+      phoneNumber: order.phoneNumber,
+      email: order.email,
+      subtotal: order.totalSellingPrice || 0,
+      discount: order.discount || 0,
+      discountAmount: order.discountAmount || 0,
+      totalAmount: order.totalAmount || 0,
+      amountPaid: numericAmount,
+      balance: remainingBalance,
+      currency: order.currency || 'NGN',
+      paymentMethod: paymentRecord.paymentMethod,
+      reference: paymentRecord.reference,
+      notes: paymentRecord.notes,
+      recordedBy: paymentRecord.recordedBy,
+      recordedAt: paymentRecord.paymentDate
+    });
+
+    if (order.email) {
+      try {
+        const formatMoney = (value) =>
+          `₦${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const paymentDate = new Date(receipt.receiptDate || receipt.createdAt);
+        const formattedPaymentDate = paymentDate.toLocaleString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: '2-digit',
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+
+        await sendEmail({
+          to: order.email,
+          subject: `Receipt ${receipt.receiptNumber} for Order ${order.orderNumber}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+              <div style="background:#A16438; color:#fff; padding:24px 20px; border-radius:12px 12px 0 0;">
+                <h2 style="margin:0; font-size:28px;">${req.companyName}</h2>
+                <p style="margin:6px 0 0; font-size:16px; opacity:0.9;">Receipt ${receipt.receiptNumber}</p>
+              </div>
+              <div style="padding:20px; border:1px solid #eee; border-top:0; border-radius:0 0 12px 12px;">
+                <p style="font-size:15px;"><strong>Payment Date:</strong> ${formattedPaymentDate}</p>
+                <div style="border:1px solid #eee; border-radius:12px; padding:16px; margin:16px 0;">
+                  <h3 style="margin:0 0 8px;">Client Information</h3>
+                  <p style="margin:4px 0;"><strong>Name:</strong> ${order.clientName || '-'}</p>
+                  <p style="margin:4px 0;"><strong>Email:</strong> ${order.email || '-'}</p>
+                  <p style="margin:4px 0;"><strong>Phone:</strong> ${order.phoneNumber || '-'}</p>
+                  <p style="margin:4px 0;"><strong>Address:</strong> ${order.clientAddress || '-'}</p>
+                </div>
+                <div style="border:1px solid #eee; border-radius:12px; padding:16px; margin:16px 0;">
+                  <p style="margin:6px 0;"><strong>Subtotal:</strong> ${formatMoney(receipt.subtotal)}</p>
+                  <p style="margin:6px 0;"><strong>Discount:</strong> -${formatMoney(receipt.discountAmount)}</p>
+                  <hr style="border:none; border-top:1px solid #eee; margin:12px 0;" />
+                  <p style="margin:6px 0; font-size:18px;"><strong>Total Amount:</strong> ${formatMoney(receipt.totalAmount)}</p>
+                  <p style="margin:6px 0;"><strong>Amount Paid:</strong> ${formatMoney(receipt.amountPaid)}</p>
+                  <hr style="border:none; border-top:1px solid #eee; margin:12px 0;" />
+                  <p style="margin:6px 0; font-size:18px; color:#A16438;"><strong>Balance:</strong> ${formatMoney(receipt.balance)}</p>
+                </div>
+                <p style="font-size:13px; color:#777; text-align:center; margin-top:16px;">Woodworker</p>
+              </div>
+            </div>
+          `
+        });
+      } catch (emailError) {
+        console.error('Receipt email error:', emailError);
+      }
+    }
+
     // Get current user
     const currentUser = await User.findById(req.user._id);
 
@@ -392,7 +501,8 @@ exports.addPayment = async (req, res) => {
     return ApiResponse.success(res, 'Payment added successfully', {
       order,
       payment: paymentRecord,
-      remainingBalance
+      remainingBalance,
+      receipt
     });
 
   } catch (error) {
@@ -614,6 +724,7 @@ exports.getOrderReceipt = async (req, res) => {
         email: order.userId?.email
       },
       items: order.items,
+      boms: order.boms,
       service: order.service,
       discount: order.discount,
       discountAmount: order.discountAmount,
@@ -906,4 +1017,3 @@ exports.unassignOrderFromStaff = async (req, res) => {
     return ApiResponse.error(res, 'Server error unassigning order', 500);
   }
 };
-

@@ -38,4 +38,14 @@ router.get('/materials', databaseController.getMaterials);
 router.put('/materials/:id', databaseController.updateMaterial);
 router.delete('/materials/:id', databaseController.deleteMaterial);
 
+// Invoices
+router.get('/invoices', databaseController.getInvoices);
+router.put('/invoices/:id', databaseController.updateInvoice);
+router.delete('/invoices/:id', databaseController.deleteInvoice);
+
+// Receipts
+router.get('/receipts', databaseController.getReceipts);
+router.put('/receipts/:id', databaseController.updateReceipt);
+router.delete('/receipts/:id', databaseController.deleteReceipt);
+
 module.exports = router;

@@ -31,6 +31,134 @@ const orderItemSchema = new mongoose.Schema({
   image: String
 });
 
+const orderBomMaterialSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  woodType: String,
+  foamType: String,
+  type: String,
+  width: Number,
+  height: Number,
+  length: Number,
+  thickness: Number,
+  unit: {
+    type: String,
+    enum: ['cm', 'inch', 'm', 'mm','ft','in'],
+    default: 'cm'
+  },
+  squareMeter: {
+    type: Number,
+    min: 0
+  },
+  price: {
+    type: Number,
+    min: 0
+  },
+  quantity: {
+    type: Number,
+    default: 1,
+    min: 0
+  },
+  description: String,
+  subtotal: {
+    type: Number,
+    default: 0
+  }
+});
+
+const orderBomAdditionalCostSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  amount: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  description: String
+});
+
+const orderBomSchema = new mongoose.Schema({
+  bomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BOM',
+    required: true
+  },
+  bomNumber: String,
+  name: String,
+  description: String,
+  productId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product'
+  },
+  product: {
+    productId: String,
+    name: String,
+    description: String,
+    image: String
+  },
+  materials: [orderBomMaterialSchema],
+  additionalCosts: [orderBomAdditionalCostSchema],
+  materialsCost: {
+    type: Number,
+    default: 0
+  },
+  additionalCostsTotal: {
+    type: Number,
+    default: 0
+  },
+  totalCost: {
+    type: Number,
+    default: 0
+  },
+  pricing: {
+    pricingMethod: String,
+    markupPercentage: {
+      type: Number,
+      default: 0
+    },
+    materialsTotal: {
+      type: Number,
+      default: 0
+    },
+    additionalTotal: {
+      type: Number,
+      default: 0
+    },
+    overheadCost: {
+      type: Number,
+      default: 0
+    },
+    costPrice: {
+      type: Number,
+      default: 0
+    },
+    sellingPrice: {
+      type: Number,
+      default: 0
+    }
+  },
+  expectedDuration: {
+    value: {
+      type: Number,
+      required: false
+    },
+    unit: {
+      type: String,
+      enum: ['Hour', 'Day', 'Week', 'Month'],
+      default: 'Day'
+    }
+  },
+  dueDate: {
+    type: Date,
+    default: null
+  }
+});
 
 const orderSchema = new mongoose.Schema({
   userId: {
@@ -71,6 +199,13 @@ const orderSchema = new mongoose.Schema({
   
   // Order Items (copied from quotation)
   items: [orderItemSchema],
+
+  // BOMs linked to this order (snapshot of BOMs at order creation)
+  boms: [orderBomSchema],
+  bomIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BOM'
+  }],
   
   // Service (if any from quotation)
   service: {
