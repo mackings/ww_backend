@@ -854,7 +854,7 @@ exports.getMaterials = async (req, res) => {
       query.status = status;
     }
     if (category) {
-      query.category = category.toUpperCase();
+      query.category = { $regex: `^${String(category).trim()}$`, $options: 'i' };
     }
     if (search) {
       query.$or = [
@@ -918,7 +918,7 @@ exports.updateMaterial = async (req, res) => {
     const update = {};
 
     if (body.name !== undefined) update.name = body.name;
-    if (body.category !== undefined) update.category = String(body.category).toUpperCase();
+    if (body.category !== undefined) update.category = String(body.category).trim();
     if (body.image !== undefined) update.image = body.image;
     if (body.standardWidth !== undefined) update.standardWidth = body.standardWidth;
     if (body.standardLength !== undefined) update.standardLength = body.standardLength;

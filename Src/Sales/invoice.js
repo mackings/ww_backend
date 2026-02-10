@@ -186,7 +186,8 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     return ApiResponse.success(res, 'Invoice created successfully and sent via email', invoice, 201);
   } catch (error) {
     console.error('Create invoice error:', error);
-    return ApiResponse.error(res, error.message || 'Server error creating invoice', 500);
+    const isValidationError = error && (error.name === 'ValidationError' || error.name === 'CastError');
+    return ApiResponse.error(res, error.message || 'Server error creating invoice', isValidationError ? 400 : 500);
   }
 };
 

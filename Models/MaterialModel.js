@@ -116,8 +116,60 @@ const materialSchema = new mongoose.Schema({
 
   category: {
     type: String,
-    enum: ['WOOD', 'BOARD', 'FOAM', 'MARBLE', 'HARDWARE', 'FABRIC', 'OTHER'],
-    required: true
+    required: true,
+    trim: true
+  },
+
+  subCategory: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+
+  size: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+
+  color: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+
+  thickness: {
+    type: Number,
+    default: null
+  },
+
+  thicknessUnit: {
+    type: String,
+    default: 'inches',
+    enum: ['mm', 'cm', 'm', 'inches', 'ft']
+  },
+
+  catalogKey: {
+    type: String,
+    trim: true,
+    default: '',
+    index: true
+  },
+
+  catalogPrice: {
+    type: Number,
+    default: null
+  },
+
+  isCatalogMaterial: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+
+  isCatalogPriced: {
+    type: Boolean,
+    default: false
   },
 
   // ✅ Material Image

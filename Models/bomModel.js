@@ -21,8 +21,8 @@ if (mongoose.models.BOM) {
     thickness: Number,
     unit: {
       type: String,
-      enum: ['cm', 'inch', 'm', 'mm','ft','in'],
-      default: 'cm'
+      default: 'cm',
+      trim: true
     },
     squareMeter: {
       type: Number,

@@ -30,6 +30,7 @@ router.post('/products/global', upload.single("image"), platformController.creat
 
 // Materials
 router.get('/materials/pending', platformController.getPendingMaterials);
+router.post('/materials/reseed-from-catalog', platformController.reseedMaterialsFromCatalog);
 router.patch('/materials/:materialId/approve', platformController.approveMaterial);
 router.patch('/materials/:materialId/reject', platformController.rejectMaterial);
 

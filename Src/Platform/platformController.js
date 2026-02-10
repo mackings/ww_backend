@@ -6,6 +6,18 @@ const Quotation = require('../../Models/quotationModel');
 const Material = require('../../Models/MaterialModel');
 const { sendEmail } = require('../../Utils/emailUtil');
 const { notifyUser, notifyCompany } = require('../../Utils/NotHelper');
+const { getCatalogMaterials } = require('../../Utils/materialCatalog');
+
+const normalizePricingUnit = (unit = '') => {
+  const normalized = String(unit || '').trim().toLowerCase();
+  if (!normalized) return 'piece';
+  if (normalized.includes('square meter') || normalized === 'sqm') return 'sqm';
+  if (normalized.includes('yard') || normalized.includes('meter')) return 'meter';
+  if (normalized.includes('pound')) return 'pound';
+  if (normalized.includes('bag')) return 'bag';
+  if (normalized.includes('liter') || normalized.includes('ltr')) return 'liter';
+  return 'piece';
+};
 
 /**
  * @desc    Get platform dashboard statistics
@@ -911,7 +923,7 @@ exports.getPendingMaterials = async (req, res) => {
     }
 
     if (category) {
-      query.category = category.toUpperCase();
+      query.category = { $regex: `^${String(category).trim()}$`, $options: 'i' };
     }
 
     const materials = await Material.find(query)
@@ -937,6 +949,98 @@ exports.getPendingMaterials = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching pending materials'
+    });
+  }
+};
+
+/**
+ * @desc    Reseed all materials from Excel catalog CSV
+ * @route   POST /api/platform/materials/reseed-from-catalog
+ * @access  Platform Owner
+ */
+exports.reseedMaterialsFromCatalog = async (req, res) => {
+  try {
+    const { confirm } = req.body || {};
+    if (confirm !== true && confirm !== 'true') {
+      return res.status(400).json({
+        success: false,
+        message: 'This action deletes all existing materials. Set confirm=true to proceed.'
+      });
+    }
+
+    const catalog = getCatalogMaterials();
+    if (!catalog.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Catalog is empty. Ensure materials_all.csv has content.'
+      });
+    }
+
+    const now = new Date();
+    const submittedBy = req.user?._id;
+    const performedByName = req.user?.fullname || 'Platform Owner';
+
+    const seedPayload = catalog.map((item) => {
+      const pricingUnit = normalizePricingUnit(item.unit);
+      const isSqmPricing = pricingUnit === 'sqm';
+
+      return {
+        companyName: 'GLOBAL',
+        isGlobal: true,
+        status: 'approved',
+        submittedBy,
+        submittedAt: now,
+        approvedBy: submittedBy,
+        approvedAt: now,
+        approvalHistory: [{
+          action: 'approved',
+          performedBy: submittedBy,
+          performedByName,
+          reason: 'Reseeded from materials_all.csv catalog',
+          timestamp: now
+        }],
+        name: item.material,
+        category: item.category,
+        subCategory: item.subCategory || '',
+        size: item.size || '',
+        unit: item.unit || '',
+        color: item.color || '',
+        thickness: item.thickness ?? null,
+        thicknessUnit: item.thicknessUnit || 'inches',
+        catalogKey: item.key,
+        catalogPrice: item.priceNumeric,
+        isCatalogMaterial: true,
+        isCatalogPriced: item.isPriced,
+        pricingUnit,
+        pricePerSqm: isSqmPricing ? item.priceNumeric : null,
+        pricePerUnit: isSqmPricing ? null : item.priceNumeric,
+        isActive: true,
+        notes: 'Seeded from Excel catalog (materials_all.csv)'
+      };
+    });
+
+    const existingCount = await Material.countDocuments({});
+    await Material.deleteMany({});
+    const inserted = await Material.insertMany(seedPayload, { ordered: false });
+
+    const pricedCount = inserted.filter((material) => material.isCatalogPriced).length;
+    const unpricedCount = inserted.length - pricedCount;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Materials reseeded successfully from catalog',
+      data: {
+        deletedMaterials: existingCount,
+        insertedMaterials: inserted.length,
+        pricedMaterials: pricedCount,
+        unpricedMaterials: unpricedCount
+      }
+    });
+  } catch (error) {
+    console.error('Reseed materials from catalog error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error reseeding materials from catalog'
     });
   }
 };

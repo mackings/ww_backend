@@ -315,6 +315,14 @@ exports.createQuotation = async (req, res) => {
       boms
     } = req.body;
 
+    // Company context required (platform owners have no active company)
+    if (!req.companyName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company context required. Please sign in as a company user or select an active company.'
+      });
+    }
+
     // Validation
     if (!clientName || !items || items.length === 0) {
       return res.status(400).json({
@@ -323,11 +331,33 @@ exports.createQuotation = async (req, res) => {
       });
     }
 
+    const normalizeUnit = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return 'cm';
+      const lower = raw.toLowerCase();
+
+      if (['cm', 'centimeter', 'centimeters'].includes(lower)) return 'cm';
+      if (['inch', 'in', 'inches'].includes(lower)) return 'inch';
+      if (['ft', 'feet', 'foot'].includes(lower)) return 'ft';
+      if (['m', 'meter', 'meters', 'metre', 'metres'].includes(lower)) return 'm';
+      if (['sqm', 'square meter', 'square meters', 'm2', 'm^2'].includes(lower)) return 'sqm';
+
+      // Allow material unit strings like Piece/Pack/Pair/etc (no enum now)
+      return raw;
+    };
+
+    const sanitizedItems = Array.isArray(items)
+      ? items.map((item) => ({
+        ...item,
+        unit: normalizeUnit(item.unit)
+      }))
+      : items;
+
     // Calculate totals from items
     let totalCost = 0;
     let totalSellingPrice = 0;
 
-    items.forEach(item => {
+    sanitizedItems.forEach(item => {
       const itemQuantity = item.quantity || 1;
       totalCost += (item.costPrice || 0) * itemQuantity;
       totalSellingPrice += (item.sellingPrice || 0) * itemQuantity;
@@ -367,7 +397,7 @@ exports.createQuotation = async (req, res) => {
       phoneNumber,
       email,
       description,
-      items,
+      items: sanitizedItems,
       service,
       expectedDuration: durationData,
       dueDate: dueDate || null,
@@ -443,7 +473,8 @@ exports.createQuotation = async (req, res) => {
     });
   } catch (error) {
     console.error('Create quotation error:', error);
-    res.status(500).json({
+    const isValidationError = error && (error.name === 'ValidationError' || error.name === 'CastError');
+    res.status(isValidationError ? 400 : 500).json({
       success: false,
       message: 'Error creating quotation',
       error: error.message

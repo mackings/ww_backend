@@ -12,8 +12,8 @@ const itemSchema = new mongoose.Schema({
   thickness: Number,
   unit: {
     type: String,
-    enum: ['cm', 'inch', 'm','ft','in'],
-    default: 'cm'
+    default: 'cm',
+    trim: true
   },
   squareMeter: Number,
   quantity: {
