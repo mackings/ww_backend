@@ -4,6 +4,7 @@ const UserCompany = require('../../Models/userCompanyModel');
 const User = require('../../Models/user');
 const ApiResponse = require('../../Utils/apiResponse');
 const { notifyCompany, notifyUser } = require('../../Utils/NotHelper');
+const { ALL_PERMISSIONS } = require('../../Utils/defaultCompanyPermissions');
 
 
 
@@ -38,6 +39,27 @@ exports.createCompany = async (req, res) => {
     await User.findByIdAndUpdate(req.user._id, {
       lastActiveCompany: company._id,
     });
+
+    // Keep embedded `User.companies[]` in sync (used by ActiveCompany middleware)
+    const user = await User.findById(req.user._id);
+    if (user) {
+      const alreadyExists = (user.companies || []).some((c) => c.name === company.name);
+      if (!alreadyExists) {
+        user.companies.push({
+          name: company.name,
+          email: company.email || req.user.email,
+          phoneNumber: phoneNumber || req.user.phoneNumber,
+          address,
+          role: 'owner',
+          position: 'Owner',
+          accessGranted: true,
+          joinedAt: new Date(),
+          permissions: { ...ALL_PERMISSIONS }
+        });
+        user.activeCompanyIndex = user.companies.length - 1;
+        await user.save();
+      }
+    }
 
     // ✅ Notify user about company creation
     await notifyUser({

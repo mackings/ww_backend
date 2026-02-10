@@ -8,6 +8,7 @@ const { sendSMS } = require('../../Utils/smsUtil');
 const ApiResponse = require("../../Utils/apiResponse");
 const generateOTP = require('../../Utils/genOtp');
 const generateToken = require('../../Utils/genToken');
+const { ALL_PERMISSIONS, getEffectivePermissions } = require('../../Utils/defaultCompanyPermissions');
 
 // const Company = require('../../Models/companyModel');
 // const UserCompany = require('../../Models/userCompanyModel');
@@ -57,6 +58,7 @@ exports.signup = async (req, res) => {
         position: 'Owner',
         accessGranted: true,
         joinedAt: new Date(),
+        permissions: { ...ALL_PERMISSIONS }
       });
     }
 
@@ -78,7 +80,10 @@ exports.signup = async (req, res) => {
           email: user.email,
           phoneNumber: user.phoneNumber,
           isVerified: user.isVerified,
-          companies: user.companies,
+          companies: (user.companies || []).map((c) => ({
+            ...(c.toObject ? c.toObject() : c),
+            permissions: getEffectivePermissions(c)
+          })),
           activeCompany: user.getActiveCompany(),
         },
       },
@@ -151,7 +156,10 @@ exports.signin = async (req, res) => {
         phoneNumber: user.phoneNumber,
         isVerified: user.isVerified,
         isPlatformOwner: user.isPlatformOwner,
-        companies: user.companies,
+        companies: (user.companies || []).map((c) => ({
+          ...(c.toObject ? c.toObject() : c),
+          permissions: getEffectivePermissions(c)
+        })),
         activeCompanyIndex: user.activeCompanyIndex,
         activeCompany: user.getActiveCompany(),
       },
@@ -190,6 +198,7 @@ exports.createCompany = async (req, res) => {
       position: 'Owner',
       accessGranted: true,
       joinedAt: new Date(),
+      permissions: { ...ALL_PERMISSIONS }
     });
 
     // Set as active company
@@ -805,9 +814,13 @@ exports.getMe = async (req, res) => {
       email: user.email,
       phoneNumber: user.phoneNumber,
       isVerified: user.isVerified,
-      role: user.role,
-      position: user.position,
-      company: user.company,
+      isPlatformOwner: user.isPlatformOwner,
+      companies: (user.companies || []).map((c) => ({
+        ...(c.toObject ? c.toObject() : c),
+        permissions: getEffectivePermissions(c)
+      })),
+      activeCompanyIndex: user.activeCompanyIndex,
+      activeCompany: user.getActiveCompany(),
     });
   } catch (error) {
     console.error('Get user error:', error);

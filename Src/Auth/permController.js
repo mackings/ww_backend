@@ -3,6 +3,7 @@
 const User = require('../../Models/user');
 const Notification = require('../../Models/notificationsModel');
 const { success, error } = require('../../Utils/apiResponse');
+const { ALL_PERMISSIONS, getEffectivePermissions } = require('../../Utils/defaultCompanyPermissions');
 
 /**
  * @desc    Get staff permissions
@@ -43,7 +44,7 @@ exports.getStaffPermissions = async (req, res) => {
       email: staffUser.email,
       role: staffCompanyData.role,
       position: staffCompanyData.position,
-      permissions: staffCompanyData.permissions || {}
+      permissions: getEffectivePermissions(staffCompanyData)
     });
 
   } catch (err) {
