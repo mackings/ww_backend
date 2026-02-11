@@ -97,6 +97,11 @@ exports.requireOwnerOrAdmin = async (req, res, next) => {
       return error(res, 'User not authenticated', 401);
     }
 
+    // Platform owners can manage any company
+    if (user.isPlatformOwner) {
+      return next();
+    }
+
     const activeCompany = user.companies[user.activeCompanyIndex || 0];
     
     if (!activeCompany) {

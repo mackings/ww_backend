@@ -667,3 +667,45 @@ Mobile UI instructions (platform owner):
   - `Board`: thickness derived from `size` when it looks like a thickness (e.g. `0.25"`, `5/8"`, `1"`).
   - `Wood`: thickness derived from the first component in `size` when it looks like `1"x10"x144"` → thickness `1`.
 - Old endpoints still exist; above are the changed/new material APIs for this rollout.
+
+---
+
+## 9) Admin: Update Pricing by Type (Category → Type)
+
+Some catalog groups are organized as:
+`Category (e.g. Board)` → `Type (subCategory, e.g. Foreign Plywood)` → `Variants (size/unit/color/thickness…)`.
+
+To update pricing for a whole Type at once (instead of editing each variant), use the Database API:
+
+### `PUT /api/database/materials/pricing/type`
+
+Access:
+- Company `owner/admin`
+- Platform owner (can pass `companyName` OR `materialId` to auto-resolve company)
+
+Query params (platform owner only, optional):
+- `companyName` (string)
+
+Request body:
+- `materialId` (string, optional for platform owner; if provided, API auto-resolves `companyName`, and can infer `category`/`subCategory`/`unit`)
+- `category` (string, required if not inferring from `materialId`)
+- `subCategory` (string, required if not inferring from `materialId`)
+- `unit` (string, optional; limits which variants to update)
+- `pricePerUnit` (number, optional)
+- `pricePerSqm` (number, optional)
+- `pricingUnit` (string, optional; e.g. `piece`, `sqm`)
+- `onlyUnpriced` (boolean-like, optional, default `false`)
+  - `true` updates only materials that have no price yet (no `pricePerUnit`, no `pricePerSqm`, and no `catalogPrice`).
+
+Example (platform owner, auto-resolve from selected material):
+```bash
+curl -s -X PUT "https://ww-backend.vercel.app/api/database/materials/pricing/type" \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "materialId": "6989abcd1234ef567890abcd",
+    "pricePerUnit": 20000,
+    "pricingUnit": "piece",
+    "onlyUnpriced": false
+  }'
+```

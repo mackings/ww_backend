@@ -485,6 +485,49 @@ exports.getCompanyStaff = async (req, res) => {
       return ApiResponse.error(res, 'User not found', 404);
     }
 
+    // Platform owner: can view staff across all companies,
+    // or scope with ?companyName=<Exact Company Name>
+    if (user.isPlatformOwner) {
+      const companyName = (req.query.companyName || '').toString().trim();
+      const search = (req.query.search || '').toString().trim();
+
+      const query = {};
+      if (companyName) {
+        query['companies.name'] = companyName;
+      }
+      if (search) {
+        query.$or = [
+          { fullname: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { phoneNumber: { $regex: search, $options: 'i' } },
+          { 'companies.name': { $regex: search, $options: 'i' } }
+        ];
+      }
+
+      const allUsers = await User.find(query).select('-password');
+      const staffList = [];
+
+      allUsers.forEach((u) => {
+        (u.companies || []).forEach((companyData) => {
+          if (companyName && companyData.name !== companyName) return;
+          staffList.push({
+            id: u._id,
+            fullname: u.fullname,
+            email: u.email,
+            phoneNumber: u.phoneNumber,
+            companyName: companyData.name,
+            role: companyData.role,
+            position: companyData.position,
+            accessGranted: companyData.accessGranted,
+            permissions: getEffectivePermissions(companyData),
+            joinedAt: companyData.joinedAt,
+          });
+        });
+      });
+
+      return ApiResponse.success(res, 'Staff fetched successfully', staffList);
+    }
+
     // Get active company
     const activeCompany = user.companies && user.companies.length > 0 
       ? user.companies[user.activeCompanyIndex || 0] 
@@ -512,6 +555,7 @@ exports.getCompanyStaff = async (req, res) => {
           role: companyData.role,
           position: companyData.position,
           accessGranted: companyData.accessGranted,
+          permissions: getEffectivePermissions(companyData),
           joinedAt: companyData.joinedAt,
         });
       }

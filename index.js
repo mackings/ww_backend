@@ -1,7 +1,8 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const helmet = require('helmet');
 require('dotenv').config({ quiet: true });
+const connectDB = require('./Utils/dbConnect');
+const { startReminderScheduler } = require('./Utils/reminderScheduler');
 
 const app = express();
 
@@ -12,13 +13,29 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI, {})
-  .then(() => {
-    console.log('MongoDB connected successfully');
-    startReminderScheduler();
-  })
-  .catch(err => console.error('MongoDB connection error:', err));
+// Ensure DB connection before handling requests (fixes buffering timeouts).
+app.use(async (req, res, next) => {
+  // Let health check succeed even if DB is down.
+  if (req.path === '/health') return next();
+
+  try {
+    await connectDB();
+
+    // Start scheduler once per warm instance (optional).
+    if (!global.__wwBackendSchedulerStarted) {
+      global.__wwBackendSchedulerStarted = true;
+      startReminderScheduler();
+    }
+
+    return next();
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+    return res.status(503).json({
+      success: false,
+      message: 'Database connection unavailable'
+    });
+  }
+});
 
 // Routes
 //const authRoutes = require('../wwBackend/Routes/authRoutes');
@@ -35,7 +52,6 @@ const NotRoutes = require('./Routes/notificationRoutes');
 const permRoutes = require('./Routes/permRoutes');
 const platformRoutes = require('./Routes/platformRoutes');
 const settingsRoutes = require('./Routes/settingsRoutes');
-const { startReminderScheduler } = require('./Utils/reminderScheduler');
 const databaseRoutes = require('./Routes/databaseRoutes');
 
 
@@ -80,8 +96,12 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Local dev server (Vercel serverless will use `module.exports = app`)
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;

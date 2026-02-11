@@ -66,10 +66,20 @@ const buildPagination = (page, limit, total) => ({
   pages: Math.ceil(total / limit)
 });
 
-const getActiveCompanyOrError = (req, res) => {
+const getCompanyScope = (req, res, { requireCompany = false } = {}) => {
+  // Platform owners can query any company (or all) via ?companyName=
+  if (req.user && req.user.isPlatformOwner) {
+    const requestedCompany = (req.query?.companyName || req.body?.companyName || '').toString().trim();
+    if (requireCompany && !requestedCompany) {
+      ApiResponse.error(res, 'companyName is required for this action (platform owner)', 400);
+      return undefined;
+    }
+    return requestedCompany || null; // null => all companies
+  }
+
   if (!req.companyName) {
     ApiResponse.error(res, 'Company context required', 400);
-    return null;
+    return undefined;
   }
   return req.companyName;
 };
@@ -81,11 +91,11 @@ const getActiveCompanyOrError = (req, res) => {
  */
 exports.getQuotations = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
     const { page = 1, limit = 50, search } = req.query;
-    const query = { companyName };
+    const query = companyName ? { companyName } : {};
     if (search) {
       query.$or = [
         { clientName: { $regex: search, $options: 'i' } },
@@ -116,13 +126,12 @@ exports.getQuotations = async (req, res) => {
  */
 exports.updateQuotation = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const quotation = await Quotation.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const quotation = companyName
+      ? await Quotation.findOne({ _id: req.params.id, companyName })
+      : await Quotation.findById(req.params.id);
 
     if (!quotation) {
       return ApiResponse.error(res, 'Quotation not found', 404);
@@ -173,7 +182,7 @@ exports.updateQuotation = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: quotation.companyName,
       type: 'quotation_updated',
       title: 'Quotation Updated',
       message: `${currentUser.fullname} updated quotation for ${quotation.clientName}`,
@@ -201,13 +210,12 @@ exports.updateQuotation = async (req, res) => {
  */
 exports.deleteQuotation = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const quotation = await Quotation.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const quotation = companyName
+      ? await Quotation.findOne({ _id: req.params.id, companyName })
+      : await Quotation.findById(req.params.id);
 
     if (!quotation) {
       return ApiResponse.error(res, 'Quotation not found', 404);
@@ -219,7 +227,7 @@ exports.deleteQuotation = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: quotation.companyName,
       type: 'quotation_deleted',
       title: 'Quotation Deleted',
       message: `${currentUser.fullname} deleted quotation for ${clientName}`,
@@ -246,11 +254,11 @@ exports.deleteQuotation = async (req, res) => {
  */
 exports.getBoms = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
     const { page = 1, limit = 50, search } = req.query;
-    const query = { companyName };
+    const query = companyName ? { companyName } : {};
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -281,13 +289,12 @@ exports.getBoms = async (req, res) => {
  */
 exports.updateBom = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const bom = await BOM.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const bom = companyName
+      ? await BOM.findOne({ _id: req.params.id, companyName })
+      : await BOM.findById(req.params.id);
 
     if (!bom) {
       return ApiResponse.error(res, 'BOM not found', 404);
@@ -336,7 +343,7 @@ exports.updateBom = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: bom.companyName,
       type: 'bom_updated',
       title: 'BOM Updated',
       message: `${currentUser.fullname} updated BOM: ${bom.name}`,
@@ -363,13 +370,12 @@ exports.updateBom = async (req, res) => {
  */
 exports.deleteBom = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const bom = await BOM.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const bom = companyName
+      ? await BOM.findOne({ _id: req.params.id, companyName })
+      : await BOM.findById(req.params.id);
 
     if (!bom) {
       return ApiResponse.error(res, 'BOM not found', 404);
@@ -380,7 +386,7 @@ exports.deleteBom = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: bom.companyName,
       type: 'bom_deleted',
       title: 'BOM Deleted',
       message: `${currentUser.fullname} deleted BOM: ${bomName}`,
@@ -406,32 +412,86 @@ exports.deleteBom = async (req, res) => {
  */
 exports.getStaff = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    // Explicit platform-owner mode: show all companies by default
+    if (req.user?.isPlatformOwner) {
+      const companyName = (req.query?.companyName || req.body?.companyName || '').toString().trim();
+      const { page = 1, limit = 50, search } = req.query;
+      const query = {};
 
-    const users = await User.find({
-      'companies.name': companyName
-    }).select('-password');
-
-    const staffList = [];
-    users.forEach(u => {
-      const companyData = u.companies.find(c => c.name === companyName);
-      if (companyData) {
-        staffList.push({
-          id: u._id,
-          fullname: u.fullname,
-          email: u.email,
-          phoneNumber: u.phoneNumber,
-          role: companyData.role,
-          position: companyData.position,
-          accessGranted: companyData.accessGranted,
-          permissions: companyData.permissions || {},
-          joinedAt: companyData.joinedAt
-        });
+      if (search) {
+        query.$or = [
+          { fullname: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { phoneNumber: { $regex: search, $options: 'i' } },
+          { 'companies.name': { $regex: search, $options: 'i' } }
+        ];
       }
-    });
+      if (companyName) {
+        query['companies.name'] = companyName;
+      }
 
-    return ApiResponse.success(res, 'Staff fetched successfully', staffList);
+      const users = await User.find(query)
+        .select('-password')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(parseInt(limit, 10));
+
+      const total = await User.countDocuments(query);
+      const staffList = [];
+
+      users.forEach((u) => {
+        (u.companies || []).forEach((c) => {
+          if (companyName && c.name !== companyName) return;
+          staffList.push({
+            companyName: c.name,
+            id: u._id,
+            fullname: u.fullname,
+            email: u.email,
+            phoneNumber: u.phoneNumber,
+            role: c.role,
+            position: c.position,
+            accessGranted: c.accessGranted,
+            permissions: c.permissions || {},
+            joinedAt: c.joinedAt
+          });
+        });
+      });
+
+      return ApiResponse.success(res, 'Staff fetched successfully', {
+        data: staffList,
+        pagination: buildPagination(page, limit, total)
+      });
+    }
+
+    // Company-user mode
+    const companyName = req.companyName;
+    if (!companyName) {
+      return ApiResponse.error(res, 'Company context required', 400);
+    }
+
+    if (companyName) {
+      const users = await User.find({ 'companies.name': companyName }).select('-password');
+
+      const staffList = [];
+      users.forEach(u => {
+        const companyData = u.companies.find(c => c.name === companyName);
+        if (companyData) {
+          staffList.push({
+            id: u._id,
+            fullname: u.fullname,
+            email: u.email,
+            phoneNumber: u.phoneNumber,
+            role: companyData.role,
+            position: companyData.position,
+            accessGranted: companyData.accessGranted,
+            permissions: companyData.permissions || {},
+            joinedAt: companyData.joinedAt
+          });
+        }
+      });
+
+      return ApiResponse.success(res, 'Staff fetched successfully', staffList);
+    }
   } catch (error) {
     console.error('Get staff (database) error:', error);
     return ApiResponse.error(res, 'Error fetching staff', 500);
@@ -445,8 +505,8 @@ exports.getStaff = async (req, res) => {
  */
 exports.updateStaff = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res, { requireCompany: true });
+    if (companyName === undefined) return;
 
     const { role, position, accessGranted, permissions } = req.body;
     const staffUser = await User.findById(req.params.userId);
@@ -503,8 +563,8 @@ exports.updateStaff = async (req, res) => {
  */
 exports.deleteStaff = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res, { requireCompany: true });
+    if (companyName === undefined) return;
 
     const staffUser = await User.findById(req.params.userId);
     if (!staffUser) {
@@ -554,20 +614,23 @@ exports.deleteStaff = async (req, res) => {
  */
 exports.getClients = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const quotations = await Quotation.find({ companyName })
-      .select('clientName phoneNumber email clientAddress nearestBusStop')
+    const query = companyName ? { companyName } : {};
+
+    const quotations = await Quotation.find(query)
+      .select('companyName clientName phoneNumber email clientAddress nearestBusStop')
       .lean();
 
     const uniqueClients = [];
     const seen = new Set();
     quotations.forEach(q => {
-      const key = `${q.clientName}-${q.phoneNumber || q.email || ''}`;
+      const key = `${q.companyName || ''}-${q.clientName || ''}-${q.phoneNumber || q.email || ''}`;
       if (!seen.has(key)) {
         seen.add(key);
         uniqueClients.push({
+          companyName: q.companyName || null,
           clientName: q.clientName,
           phoneNumber: q.phoneNumber || null,
           email: q.email || null,
@@ -591,8 +654,8 @@ exports.getClients = async (req, res) => {
  */
 exports.updateClient = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res, { requireCompany: true });
+    if (companyName === undefined) return;
 
     const { match, update } = req.body || {};
     if (!match || (!match.clientName && !match.phoneNumber && !match.email)) {
@@ -651,8 +714,8 @@ exports.updateClient = async (req, res) => {
  */
 exports.deleteClient = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res, { requireCompany: true });
+    if (companyName === undefined) return;
 
     const { match } = req.body || {};
     if (!match || (!match.clientName && !match.phoneNumber && !match.email)) {
@@ -701,11 +764,11 @@ exports.deleteClient = async (req, res) => {
  */
 exports.getProducts = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
     const { page = 1, limit = 50, search, category } = req.query;
-    const query = { companyName };
+    const query = companyName ? { companyName } : {};
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -739,13 +802,12 @@ exports.getProducts = async (req, res) => {
  */
 exports.updateProduct = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const product = await Product.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const product = companyName
+      ? await Product.findOne({ _id: req.params.id, companyName })
+      : await Product.findById(req.params.id);
 
     if (!product) {
       return ApiResponse.error(res, 'Product not found', 404);
@@ -754,11 +816,11 @@ exports.updateProduct = async (req, res) => {
     const { name, productId, category, subCategory, description, image } = req.body;
 
     if (productId && productId !== product.productId) {
-      const existingProduct = await Product.findOne({
-        productId,
-        companyName,
-        _id: { $ne: req.params.id }
-      });
+      const existingProduct = await Product.findOne(
+        companyName
+          ? { productId, companyName, _id: { $ne: req.params.id } }
+          : { productId, _id: { $ne: req.params.id } }
+      );
       if (existingProduct) {
         return ApiResponse.error(res, 'Product ID already exists', 400);
       }
@@ -775,7 +837,7 @@ exports.updateProduct = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: product.companyName,
       type: 'product_updated',
       title: 'Product Updated',
       message: `${currentUser.fullname} updated product: ${product.name}`,
@@ -802,13 +864,12 @@ exports.updateProduct = async (req, res) => {
  */
 exports.deleteProduct = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const product = await Product.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const product = companyName
+      ? await Product.findOne({ _id: req.params.id, companyName })
+      : await Product.findById(req.params.id);
 
     if (!product) {
       return ApiResponse.error(res, 'Product not found', 404);
@@ -819,7 +880,7 @@ exports.deleteProduct = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: product.companyName,
       type: 'product_deleted',
       title: 'Product Deleted',
       message: `${currentUser.fullname} deleted product: ${productName}`,
@@ -845,11 +906,11 @@ exports.deleteProduct = async (req, res) => {
  */
 exports.getMaterials = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
     const { page = 1, limit = 50, search, category, status } = req.query;
-    const query = { companyName };
+    const query = companyName ? { companyName } : {};
     if (status) {
       query.status = status;
     }
@@ -879,19 +940,154 @@ exports.getMaterials = async (req, res) => {
 };
 
 /**
+ * @desc    Bulk update material pricing by Type (category + subCategory)
+ * @route   PUT /api/database/materials/pricing/type
+ * @access  Private (Owner/Admin/Platform Owner)
+ *
+ * Notes:
+ * - "Type" here maps to `subCategory` in the materials catalog/grouping.
+ * - Platform owners can provide `companyName`, or provide `materialId` to auto-resolve company scope.
+ */
+exports.updateMaterialTypePricing = async (req, res) => {
+  try {
+    const body = req.body || {};
+    let companyName = getCompanyScope(req, res, { requireCompany: !req.user?.isPlatformOwner });
+    if (companyName === undefined) return;
+
+    const isPlatformOwner = Boolean(req.user?.isPlatformOwner);
+    let anchorMaterial = null;
+    const materialId = body.materialId;
+
+    // Platform owner convenience:
+    // if companyName is not provided, infer company from selected materialId.
+    if (isPlatformOwner && !companyName) {
+      if (!materialId) {
+        return ApiResponse.error(
+          res,
+          'For platform owner updates, provide companyName or materialId to auto-detect company.',
+          400
+        );
+      }
+
+      anchorMaterial = await Material.findById(materialId)
+        .select('_id companyName category subCategory unit')
+        .lean();
+
+      if (!anchorMaterial) {
+        return ApiResponse.error(res, 'materialId not found for scope resolution', 404);
+      }
+
+      companyName = anchorMaterial.companyName;
+    }
+
+    const category = body.category || anchorMaterial?.category;
+    const subCategory = body.subCategory || anchorMaterial?.subCategory;
+    const unit = body.unit !== undefined ? body.unit : anchorMaterial?.unit;
+    const pricingUnit = body.pricingUnit;
+
+    if (!category || !subCategory) {
+      return ApiResponse.error(
+        res,
+        'category and subCategory are required (or pass materialId to derive them).',
+        400
+      );
+    }
+
+    const hasPricePerUnit = Object.prototype.hasOwnProperty.call(body, 'pricePerUnit');
+    const hasPricePerSqm = Object.prototype.hasOwnProperty.call(body, 'pricePerSqm');
+    if (!hasPricePerUnit && !hasPricePerSqm) {
+      return ApiResponse.error(res, 'Provide pricePerUnit and/or pricePerSqm to update', 400);
+    }
+
+    const onlyUnpriced = String(body.onlyUnpriced || '').trim().toLowerCase();
+    const isOnlyUnpriced = ['true', '1', 'yes'].includes(onlyUnpriced);
+
+    const query = {
+      companyName,
+      category: { $regex: `^${String(category).trim()}$`, $options: 'i' },
+      subCategory: { $regex: `^${String(subCategory).trim()}$`, $options: 'i' }
+    };
+
+    if (unit !== undefined && unit !== null && String(unit).trim() !== '') {
+      query.unit = { $regex: `^${String(unit).trim()}$`, $options: 'i' };
+    }
+
+    if (isOnlyUnpriced) {
+      // Match "unpriced" materials by the same rules used in the product materials API:
+      // pricePerUnit, catalogPrice, pricePerSqm all missing/0.
+      query.$and = [
+        {
+          $or: [
+            { pricePerUnit: { $exists: false } },
+            { pricePerUnit: null },
+            { pricePerUnit: { $lte: 0 } }
+          ]
+        },
+        {
+          $or: [
+            { catalogPrice: { $exists: false } },
+            { catalogPrice: null },
+            { catalogPrice: { $lte: 0 } }
+          ]
+        },
+        {
+          $or: [
+            { pricePerSqm: { $exists: false } },
+            { pricePerSqm: null },
+            { pricePerSqm: { $lte: 0 } }
+          ]
+        }
+      ];
+    }
+
+    const update = {};
+    if (hasPricePerUnit) update.pricePerUnit = body.pricePerUnit;
+    if (hasPricePerSqm) update.pricePerSqm = body.pricePerSqm;
+    if (pricingUnit !== undefined) update.pricingUnit = pricingUnit;
+    if (body.standardWidth !== undefined) update.standardWidth = body.standardWidth;
+    if (body.standardLength !== undefined) update.standardLength = body.standardLength;
+    if (body.standardUnit !== undefined) update.standardUnit = body.standardUnit;
+
+    const result = await Material.updateMany(query, { $set: update }, { runValidators: true });
+
+    const examples = await Material.find(query)
+      .select('_id name companyName category subCategory unit pricePerUnit pricePerSqm pricingUnit catalogPrice')
+      .limit(5)
+      .lean();
+
+    return ApiResponse.success(res, 'Material type pricing updated successfully', {
+      matched: result.matchedCount ?? result.n ?? 0,
+      modified: result.modifiedCount ?? result.nModified ?? 0,
+      scope: {
+        companyName,
+        category: String(category).trim(),
+        subCategory: String(subCategory).trim(),
+        unit: unit ? String(unit).trim() : null,
+        onlyUnpriced: isOnlyUnpriced,
+        resolvedFromMaterialId: anchorMaterial?._id || null
+      },
+      update,
+      examples
+    });
+  } catch (error) {
+    console.error('Update material type pricing (database) error:', error);
+    return ApiResponse.error(res, 'Error updating material type pricing', 500);
+  }
+};
+
+/**
  * @desc    Update material (company)
  * @route   PUT /api/database/materials/:id
  * @access  Private
  */
 exports.updateMaterial = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const material = await Material.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const material = companyName
+      ? await Material.findOne({ _id: req.params.id, companyName })
+      : await Material.findById(req.params.id);
 
     if (!material) {
       return ApiResponse.error(res, 'Material not found', 404);
@@ -944,7 +1140,7 @@ exports.updateMaterial = async (req, res) => {
     if (commonThicknesses !== undefined) update.commonThicknesses = commonThicknesses;
 
     const updatedMaterial = await Material.findOneAndUpdate(
-      { _id: req.params.id, companyName },
+      companyName ? { _id: req.params.id, companyName } : { _id: req.params.id },
       { $set: update },
       { new: true, runValidators: true }
     );
@@ -955,7 +1151,7 @@ exports.updateMaterial = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: updatedMaterial.companyName,
       type: 'material_updated',
       title: 'Material Updated',
       message: `${currentUser.fullname} updated material: ${updatedMaterial.name}`,
@@ -982,13 +1178,12 @@ exports.updateMaterial = async (req, res) => {
  */
 exports.deleteMaterial = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const material = await Material.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const material = companyName
+      ? await Material.findOne({ _id: req.params.id, companyName })
+      : await Material.findById(req.params.id);
 
     if (!material) {
       return ApiResponse.error(res, 'Material not found', 404);
@@ -999,7 +1194,7 @@ exports.deleteMaterial = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: material.companyName,
       type: 'material_deleted',
       title: 'Material Deleted',
       message: `${currentUser.fullname} deleted material: ${materialName}`,
@@ -1025,11 +1220,11 @@ exports.deleteMaterial = async (req, res) => {
  */
 exports.getInvoices = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
     const { page = 1, limit = 50, search, status, paymentStatus } = req.query;
-    const query = { companyName };
+    const query = companyName ? { companyName } : {};
 
     if (status) query.status = status;
     if (paymentStatus) query.paymentStatus = paymentStatus;
@@ -1064,13 +1259,12 @@ exports.getInvoices = async (req, res) => {
  */
 exports.updateInvoice = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const invoice = await Invoice.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const invoice = companyName
+      ? await Invoice.findOne({ _id: req.params.id, companyName })
+      : await Invoice.findById(req.params.id);
 
     if (!invoice) {
       return ApiResponse.error(res, 'Invoice not found', 404);
@@ -1126,7 +1320,7 @@ exports.updateInvoice = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: invoice.companyName,
       type: 'invoice_updated',
       title: 'Invoice Updated',
       message: `${currentUser.fullname} updated invoice ${invoice.invoiceNumber}`,
@@ -1154,13 +1348,12 @@ exports.updateInvoice = async (req, res) => {
  */
 exports.deleteInvoice = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const invoice = await Invoice.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const invoice = companyName
+      ? await Invoice.findOne({ _id: req.params.id, companyName })
+      : await Invoice.findById(req.params.id);
 
     if (!invoice) {
       return ApiResponse.error(res, 'Invoice not found', 404);
@@ -1171,7 +1364,7 @@ exports.deleteInvoice = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: invoice.companyName,
       type: 'invoice_deleted',
       title: 'Invoice Deleted',
       message: `${currentUser.fullname} deleted invoice ${invoiceNumber}`,
@@ -1197,11 +1390,11 @@ exports.deleteInvoice = async (req, res) => {
  */
 exports.getReceipts = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
     const { page = 1, limit = 50, search } = req.query;
-    const query = { companyName };
+    const query = companyName ? { companyName } : {};
 
     if (search) {
       query.$or = [
@@ -1234,13 +1427,12 @@ exports.getReceipts = async (req, res) => {
  */
 exports.updateReceipt = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const receipt = await Receipt.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const receipt = companyName
+      ? await Receipt.findOne({ _id: req.params.id, companyName })
+      : await Receipt.findById(req.params.id);
 
     if (!receipt) {
       return ApiResponse.error(res, 'Receipt not found', 404);
@@ -1257,7 +1449,7 @@ exports.updateReceipt = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: receipt.companyName,
       type: 'receipt_updated',
       title: 'Receipt Updated',
       message: `${currentUser.fullname} updated receipt ${receipt.receiptNumber}`,
@@ -1284,13 +1476,12 @@ exports.updateReceipt = async (req, res) => {
  */
 exports.deleteReceipt = async (req, res) => {
   try {
-    const companyName = getActiveCompanyOrError(req, res);
-    if (!companyName) return;
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
 
-    const receipt = await Receipt.findOne({
-      _id: req.params.id,
-      companyName
-    });
+    const receipt = companyName
+      ? await Receipt.findOne({ _id: req.params.id, companyName })
+      : await Receipt.findById(req.params.id);
 
     if (!receipt) {
       return ApiResponse.error(res, 'Receipt not found', 404);
@@ -1301,7 +1492,7 @@ exports.deleteReceipt = async (req, res) => {
 
     const currentUser = await User.findById(req.user.id);
     await notifyCompany({
-      companyName,
+      companyName: receipt.companyName,
       type: 'receipt_deleted',
       title: 'Receipt Deleted',
       message: `${currentUser.fullname} deleted receipt ${receiptNumber}`,

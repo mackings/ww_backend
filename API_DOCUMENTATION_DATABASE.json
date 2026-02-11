@@ -1,12 +1,12 @@
 {
   "title": "Database API (Company Data)",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "baseURL": "https://ww-backend.vercel.app/api",
-  "lastUpdated": "2026-01-13",
+  "lastUpdated": "2026-02-10",
   "authentication": {
     "type": "Bearer Token (JWT)",
     "header": "Authorization: Bearer <token>",
-    "note": "All endpoints require authentication and company context"
+    "note": "All endpoints require authentication. Company users use active company context. Platform owners can optionally scope by `?companyName=<Exact Company Name>`; if omitted, list endpoints return all companies’ records."
   },
   "endpoints": [
     {
@@ -303,8 +303,8 @@
       "name": "Get Clients (Derived)",
       "method": "GET",
       "path": "/database/clients",
-      "access": "Company Users (Owner/Admin/Staff)",
-      "description": "Returns unique clients derived from quotations.",
+      "access": "Company Users (Owner/Admin/Staff) + Platform Owner",
+      "description": "Returns unique clients derived from quotations. Platform owner can see clients across all companies by default, or filter with `?companyName=<Exact Company Name>`.",
       "sampleRequest": {
         "method": "GET",
         "url": "https://ww-backend.vercel.app/api/database/clients",
@@ -317,6 +317,7 @@
         "message": "Clients fetched successfully",
         "data": [
           {
+            "companyName": "Acme Ltd",
             "clientName": "Acme Ltd",
             "phoneNumber": "1234567890",
             "email": "client@acme.com",
@@ -626,6 +627,59 @@
           "_id": "66a1e6ff9a8f9d0022b7f7c4",
           "name": "MDF Premium",
           "pricePerSqm": 9000
+        }
+      }
+    },
+    {
+      "name": "Update Material Type Pricing (Bulk)",
+      "method": "PUT",
+      "path": "/database/materials/pricing/type",
+      "access": "Owner/Admin (and Platform Owner)",
+      "description": "Bulk update pricing for all materials under a material Type. Type maps to `subCategory` (category -> subCategory -> variants). Platform owners can either pass `companyName` or pass `materialId` and let the API auto-resolve company/category/subCategory/unit from that material.",
+      "sampleRequest": {
+        "method": "PUT",
+        "url": "https://ww-backend.vercel.app/api/database/materials/pricing/type",
+        "headers": {
+          "Authorization": "Bearer <token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "materialId": "6989abcd1234ef567890abcd",
+          "pricePerUnit": 20000,
+          "pricingUnit": "piece",
+          "onlyUnpriced": false
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "message": "Material type pricing updated successfully",
+        "data": {
+          "matched": 10,
+          "modified": 10,
+          "scope": {
+            "companyName": "MacsWooder",
+            "category": "Board",
+            "subCategory": "Foreign Plywood",
+            "unit": "Piece",
+            "onlyUnpriced": false,
+            "resolvedFromMaterialId": "6989abcd1234ef567890abcd"
+          },
+          "update": {
+            "pricePerUnit": 20000,
+            "pricingUnit": "piece"
+          },
+          "examples": [
+            {
+              "_id": "66a1e6ff9a8f9d0022b7f7c4",
+              "name": "Board_Foreign Plywood_0.5\"_Piece",
+              "category": "Board",
+              "subCategory": "Foreign Plywood",
+              "unit": "Piece",
+              "catalogPrice": 20000,
+              "pricePerUnit": 20000,
+              "pricingUnit": "piece"
+            }
+          ]
         }
       }
     },

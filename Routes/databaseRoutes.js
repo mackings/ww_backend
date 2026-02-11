@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../Utils/auth');
-const { getActiveCompany } = require('../Utils/ActiveCompany');
+const { getActiveCompanyOptional } = require('../Utils/ActiveCompany');
 const { requireOwnerOrAdmin } = require('../Utils/permissions');
 const databaseController = require('../Src/Database/databaseController');
 
 router.use(protect);
-router.use(getActiveCompany);
+router.use(getActiveCompanyOptional);
 
 // Quotations
 router.get('/quotations', databaseController.getQuotations);
@@ -35,6 +35,7 @@ router.delete('/products/:id', databaseController.deleteProduct);
 
 // Materials
 router.get('/materials', databaseController.getMaterials);
+router.put('/materials/pricing/type', requireOwnerOrAdmin, databaseController.updateMaterialTypePricing);
 router.put('/materials/:id', databaseController.updateMaterial);
 router.delete('/materials/:id', databaseController.deleteMaterial);
 
