@@ -26,6 +26,15 @@ Each material is returned with all stored DB fields **plus** computed fields:
 - `unitPrice`: computed as `pricePerUnit || catalogPrice` (number or `null`)
 - `isPriced`: `true` if `(unitPrice > 0) || (pricePerSqm > 0)`, else `false`
 - `thickness` / `thicknessUnit`: explicit thickness fields (see Notes for derivation)
+- `dimensionRule`: normalized UI rule object for project-size inputs (length/width/thickness visibility, requirements, defaults)
+
+### Category dimension rules (new)
+The response now includes a top-level `dimensionRulesByCategory` array.
+Use this when user selects a category so UI knows:
+- which project-size fields to show
+- which are required before cost calculation
+- what default unit to prefill
+- common size patterns in that category
 
 ### Query params
 - `category` (string, optional, case-insensitive exact match)
@@ -41,6 +50,33 @@ Each material is returned with all stored DB fields **plus** computed fields:
 {
   "success": true,
   "count": 2,
+  "dimensionRulesByCategory": [
+    {
+      "category": "Wood",
+      "count": 2,
+      "schema": "thickness_width_length",
+      "projectInput": {
+        "showLength": true,
+        "showWidth": true,
+        "showThickness": true,
+        "requireLength": true,
+        "requireWidth": true,
+        "requireThickness": true,
+        "defaultUnit": "inches"
+      },
+      "dominantSizePattern": "triple",
+      "sizePatternCounts": {
+        "triple": 2,
+        "double": 0,
+        "single": 0,
+        "empty": 0,
+        "descriptor": 0
+      },
+      "sampleSizes": ["1\"x10\"x144\""],
+      "units": ["Piece", "inches"],
+      "note": "Wood size is usually expressed as thickness x width x length."
+    }
+  ],
   "data": [
     {
       "_id": "67a7...",
@@ -58,6 +94,27 @@ Each material is returned with all stored DB fields **plus** computed fields:
       "isCatalogPriced": true,
       "unitPrice": 450,
       "isPriced": true,
+      "dimensionRule": {
+        "schema": "quantity_only",
+        "sizePattern": "single",
+        "projectInput": {
+          "showLength": false,
+          "showWidth": false,
+          "showThickness": false,
+          "requireLength": false,
+          "requireWidth": false,
+          "requireThickness": false,
+          "defaultUnit": "inches"
+        },
+        "stockDimensions": {
+          "thickness": null,
+          "width": null,
+          "length": null,
+          "unit": "inches"
+        },
+        "sourceSize": "6\"",
+        "note": "This material is typically quantity-based unless your UI enables manual dimensions."
+      },
       "pricePerUnit": 450,
       "pricingUnit": "piece",
       "image": "https://...",
@@ -84,6 +141,7 @@ Each `variant` includes:
 - `size`, `unit`, `color`
 - `thickness`, `thicknessUnit`
 - `unitPrice`, `isPriced`
+- `dimensionRule` (same shape as `/api/product/materials`)
 - plus `pricePerUnit`, `pricePerSqm`, `catalogPrice`, `pricingUnit`, `isCatalogMaterial`, `image`, `status`, `isGlobal`
 
 ### Query params
@@ -134,6 +192,34 @@ Each `variant` includes:
   ]
 }
 ```
+
+---
+
+## 1c) Mobile App Integration (Project Size Prefill)
+
+Use `GET /api/product/materials` as the source for both material options and project-size behavior.
+
+### Recommended flow
+1. Load materials once for the screen (`/api/product/materials`).
+2. When category changes (e.g. `Wood`), read matching rule from `dimensionRulesByCategory`.
+3. Show/hide project-size inputs using:
+   - `projectInput.showLength`
+   - `projectInput.showWidth`
+   - `projectInput.showThickness`
+4. Mark required fields using:
+   - `projectInput.requireLength`
+   - `projectInput.requireWidth`
+   - `projectInput.requireThickness`
+5. Prefill unit selector from `projectInput.defaultUnit`.
+6. When a specific material variant is selected, apply `material.dimensionRule.stockDimensions` to prefill values:
+   - Wood from `1"x10"x144"` -> thickness `1`, width `10`, length `144`, unit `inches`
+   - Board from `0.5"` -> thickness `0.5` only
+
+### UI behavior notes
+- If schema is `quantity_only`, hide project-size inputs and collect quantity/unit.
+- If schema is `sheet_with_thickness`, show Length + Width + Thickness.
+- If schema is `length_width_area`, show Length + Width only (thickness optional/hidden).
+- Always keep manual override enabled for users when data is incomplete.
 
 ---
 

@@ -125,8 +125,252 @@ const materialToApi = (material) => {
   return {
     ...(obj || {}),
     unitPrice,
-    isPriced: isMaterialPriced(obj || {})
+    isPriced: isMaterialPriced(obj || {}),
+    dimensionRule: buildMaterialDimensionRule(obj || {})
   };
+};
+
+const DIMENSION_PRESETS = {
+  wood: {
+    schema: 'thickness_width_length',
+    projectInput: { showLength: true, showWidth: true, showThickness: true, requireLength: true, requireWidth: true, requireThickness: true },
+    defaultUnit: 'inches',
+    singleSizeMapsTo: null,
+    note: 'Wood size is usually expressed as thickness x width x length.'
+  },
+  board: {
+    schema: 'sheet_with_thickness',
+    projectInput: { showLength: true, showWidth: true, showThickness: true, requireLength: true, requireWidth: true, requireThickness: true },
+    defaultUnit: 'inches',
+    singleSizeMapsTo: 'thickness',
+    note: 'Board variants normally carry thickness in size (e.g. 0.5").'
+  },
+  cushion: {
+    schema: 'sheet_with_thickness',
+    projectInput: { showLength: true, showWidth: true, showThickness: true, requireLength: true, requireWidth: true, requireThickness: true },
+    defaultUnit: 'inches',
+    singleSizeMapsTo: 'thickness',
+    note: 'Cushion variants commonly define thickness in size.'
+  },
+  marble: {
+    schema: 'length_width_area',
+    projectInput: { showLength: true, showWidth: true, showThickness: false, requireLength: true, requireWidth: true, requireThickness: false },
+    defaultUnit: 'inches',
+    singleSizeMapsTo: null,
+    note: 'Marble is usually priced by area.'
+  },
+  fabric: {
+    schema: 'length_width_area',
+    projectInput: { showLength: true, showWidth: true, showThickness: false, requireLength: true, requireWidth: true, requireThickness: false },
+    defaultUnit: 'inches',
+    singleSizeMapsTo: null,
+    note: 'Fabric can be estimated by coverage area.'
+  },
+  default: {
+    schema: 'quantity_only',
+    projectInput: { showLength: false, showWidth: false, showThickness: false, requireLength: false, requireWidth: false, requireThickness: false },
+    defaultUnit: null,
+    singleSizeMapsTo: null,
+    note: 'This material is typically quantity-based unless your UI enables manual dimensions.'
+  }
+};
+
+const getDimensionPreset = (category = '') => {
+  const key = String(category || '').trim().toLowerCase();
+  return DIMENSION_PRESETS[key] || DIMENSION_PRESETS.default;
+};
+
+const normalizeDimensionUnit = (unit = '') => {
+  const normalized = String(unit || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === '"' || normalized === 'in' || normalized === 'inch' || normalized === 'inches') return 'inches';
+  if (normalized === 'mm' || normalized === 'cm' || normalized === 'm' || normalized === 'ft') return normalized;
+  if (normalized.includes('square meter') || normalized === 'sqm') return 'sqm';
+  if (normalized.includes('yard')) return 'yard';
+  if (normalized.includes('piece')) return 'piece';
+  if (normalized.includes('pair')) return 'pair';
+  if (normalized.includes('pack')) return 'pack';
+  if (normalized.includes('roll')) return 'roll';
+  if (normalized.includes('set')) return 'set';
+  if (normalized.includes('bucket')) return 'bucket';
+  if (normalized.includes('pound')) return 'pound';
+  if (normalized.includes('bag')) return 'bag';
+  return normalized;
+};
+
+const parseMaterialSize = (size = '') => {
+  const raw = String(size || '').trim();
+  if (!raw) {
+    return { pattern: 'empty', raw, dimensions: { thickness: null, width: null, length: null }, unit: null };
+  }
+
+  const numberToken = '([0-9]+(?:\\.[0-9]+)?|[0-9]+\\/[0-9]+)';
+  const tripleRegex = new RegExp(`^\\s*${numberToken}\\s*"?\\s*x\\s*${numberToken}\\s*"?\\s*x\\s*${numberToken}\\s*"?\\s*$`, 'i');
+  const doubleRegex = new RegExp(`^\\s*${numberToken}\\s*"?\\s*x\\s*${numberToken}\\s*"?\\s*$`, 'i');
+  const singleRegex = new RegExp(`^\\s*${numberToken}\\s*("|in|inch|inches|ft|mm|cm|m)?\\s*$`, 'i');
+
+  const tripleMatch = raw.match(tripleRegex);
+  if (tripleMatch) {
+    return {
+      pattern: 'triple',
+      raw,
+      dimensions: {
+        thickness: parseNumberish(tripleMatch[1]),
+        width: parseNumberish(tripleMatch[2]),
+        length: parseNumberish(tripleMatch[3])
+      },
+      unit: 'inches'
+    };
+  }
+
+  const doubleMatch = raw.match(doubleRegex);
+  if (doubleMatch) {
+    return {
+      pattern: 'double',
+      raw,
+      dimensions: {
+        thickness: null,
+        width: parseNumberish(doubleMatch[1]),
+        length: parseNumberish(doubleMatch[2])
+      },
+      unit: 'inches'
+    };
+  }
+
+  const singleMatch = raw.match(singleRegex);
+  if (singleMatch) {
+    return {
+      pattern: 'single',
+      raw,
+      dimensions: {
+        thickness: parseNumberish(singleMatch[1]),
+        width: null,
+        length: null
+      },
+      unit: normalizeDimensionUnit(singleMatch[2] || '"') || 'inches'
+    };
+  }
+
+  return { pattern: 'descriptor', raw, dimensions: { thickness: null, width: null, length: null }, unit: null };
+};
+
+const buildMaterialDimensionRule = (material) => {
+  const preset = getDimensionPreset(material.category);
+  const parsedSize = parseMaterialSize(material.size);
+  const unitFromMaterial = normalizeDimensionUnit(material.unit || material.pricingUnit || '');
+  const thicknessValue = parseNumber(material.thickness);
+
+  const stockDimensions = {
+    thickness: thicknessValue,
+    width: null,
+    length: null,
+    unit: normalizeDimensionUnit(material.thicknessUnit || parsedSize.unit || unitFromMaterial || preset.defaultUnit || '')
+  };
+
+  if (parsedSize.pattern === 'triple') {
+    stockDimensions.thickness = stockDimensions.thickness ?? parsedSize.dimensions.thickness;
+    stockDimensions.width = parsedSize.dimensions.width;
+    stockDimensions.length = parsedSize.dimensions.length;
+  } else if (parsedSize.pattern === 'double') {
+    stockDimensions.width = parsedSize.dimensions.width;
+    stockDimensions.length = parsedSize.dimensions.length;
+  } else if (parsedSize.pattern === 'single' && preset.singleSizeMapsTo === 'thickness') {
+    stockDimensions.thickness = stockDimensions.thickness ?? parsedSize.dimensions.thickness;
+  }
+
+  return {
+    schema: preset.schema,
+    sizePattern: parsedSize.pattern,
+    projectInput: {
+      ...preset.projectInput,
+      defaultUnit: parsedSize.unit || unitFromMaterial || preset.defaultUnit
+    },
+    stockDimensions,
+    sourceSize: parsedSize.raw || '',
+    note: preset.note
+  };
+};
+
+const buildDimensionRulesByCategory = (materials) => {
+  const categoryMap = new Map();
+
+  materials.forEach((material) => {
+    const category = material.category || 'Uncategorized';
+    if (!categoryMap.has(category)) {
+      categoryMap.set(category, {
+        category,
+        count: 0,
+        projectInput: material.dimensionRule?.projectInput || DIMENSION_PRESETS.default.projectInput,
+        schema: material.dimensionRule?.schema || DIMENSION_PRESETS.default.schema,
+        note: material.dimensionRule?.note || DIMENSION_PRESETS.default.note,
+        sizePatternCounts: { triple: 0, double: 0, single: 0, empty: 0, descriptor: 0 },
+        sampleSizes: new Set(),
+        units: new Set()
+      });
+    }
+
+    const entry = categoryMap.get(category);
+    entry.count += 1;
+    const pattern = material.dimensionRule?.sizePattern || 'empty';
+    if (entry.sizePatternCounts[pattern] !== undefined) {
+      entry.sizePatternCounts[pattern] += 1;
+    }
+    if (material.size && entry.sampleSizes.size < 5) {
+      entry.sampleSizes.add(material.size);
+    }
+    if (material.unit) entry.units.add(material.unit);
+    if (material.dimensionRule?.projectInput?.defaultUnit) {
+      entry.units.add(material.dimensionRule.projectInput.defaultUnit);
+    }
+  });
+
+  return Array.from(categoryMap.values())
+    .map((entry) => {
+      const dominantPattern = Object.entries(entry.sizePatternCounts)
+        .sort((a, b) => b[1] - a[1])[0]?.[0] || 'empty';
+
+      return {
+        category: entry.category,
+        count: entry.count,
+        schema: entry.schema,
+        projectInput: entry.projectInput,
+        dominantSizePattern: dominantPattern,
+        sizePatternCounts: entry.sizePatternCounts,
+        sampleSizes: Array.from(entry.sampleSizes),
+        units: Array.from(entry.units).sort((a, b) => a.localeCompare(b)),
+        note: entry.note
+      };
+    })
+    .sort((a, b) => a.category.localeCompare(b.category));
+};
+
+const getStockDimensionsForPricing = (material, overrides = {}) => {
+  const parsedSize = parseMaterialSize(material.size || '');
+  const fallbackUnit = normalizeDimensionUnit(material.standardUnit || '') || parsedSize.unit || 'inches';
+
+  let width = parseNumber(material.standardWidth);
+  let length = parseNumber(material.standardLength);
+  let unit = normalizeDimensionUnit(material.standardUnit || '') || fallbackUnit;
+
+  if ((width === null || length === null) && parsedSize.pattern === 'triple') {
+    width = width ?? parsedSize.dimensions.width;
+    length = length ?? parsedSize.dimensions.length;
+    unit = parsedSize.unit || unit;
+  } else if ((width === null || length === null) && parsedSize.pattern === 'double') {
+    width = width ?? parsedSize.dimensions.width;
+    length = length ?? parsedSize.dimensions.length;
+    unit = parsedSize.unit || unit;
+  }
+
+  if (overrides.width !== null && overrides.width !== undefined) width = parseNumber(overrides.width);
+  if (overrides.length !== null && overrides.length !== undefined) length = parseNumber(overrides.length);
+  if (overrides.unit) unit = normalizeDimensionUnit(overrides.unit) || unit;
+
+  if (width === null || length === null || !unit || !['mm', 'cm', 'm', 'inches', 'ft'].includes(unit)) {
+    return null;
+  }
+
+  return { width, length, unit };
 };
 
 exports.createProduct = async (req, res) => {
@@ -701,6 +945,7 @@ exports.getMaterials = async (req, res) => {
 
     const materials = await Material.find(query).sort({ category: 1, name: 1 });
     const data = materials.map(materialToApi);
+    const dimensionRulesByCategory = buildDimensionRulesByCategory(data);
     const lastUpdatedAt = materials.reduce((max, item) => {
       const value = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
       return Math.max(max, value);
@@ -715,6 +960,7 @@ exports.getMaterials = async (req, res) => {
       search || '',
       priced === undefined ? '' : String(priced),
       String(data.length),
+      String(dimensionRulesByCategory.length),
       String(lastUpdatedAt)
     ]);
 
@@ -728,6 +974,7 @@ exports.getMaterials = async (req, res) => {
     res.status(200).json({
       success: true,
       count: data.length,
+      dimensionRulesByCategory,
       data
     });
   } catch (error) {
@@ -837,7 +1084,8 @@ exports.getMaterialsGrouped = async (req, res) => {
         isCatalogMaterial: apiMaterial.isCatalogMaterial || false,
         image: apiMaterial.image || null,
         status: apiMaterial.status,
-        isGlobal: apiMaterial.isGlobal
+        isGlobal: apiMaterial.isGlobal,
+        dimensionRule: apiMaterial.dimensionRule
       };
 
       subCategoryNode.variants.push(variant);
@@ -1285,7 +1533,10 @@ exports.calculateMaterialCost = async (req, res) => {
       quantity = 1
     } = req.body;
 
-    const hasDimensionInput = requiredWidth && requiredLength && requiredUnit;
+    const parsedRequiredWidth = parseNumber(requiredWidth);
+    const parsedRequiredLength = parseNumber(requiredLength);
+    const parsedRequiredUnit = normalizeDimensionUnit(requiredUnit || '');
+    const hasDimensionInput = parsedRequiredWidth !== null && parsedRequiredLength !== null && Boolean(parsedRequiredUnit);
     const parsedQuantity = parseNumber(quantity);
     const quantityNumber = parsedQuantity === null ? 1 : parsedQuantity;
 
@@ -1296,7 +1547,7 @@ exports.calculateMaterialCost = async (req, res) => {
       });
     }
 
-    if (hasDimensionInput && (requiredWidth <= 0 || requiredLength <= 0)) {
+    if (hasDimensionInput && (parsedRequiredWidth <= 0 || parsedRequiredLength <= 0)) {
       return res.status(400).json({
         success: false,
         message: "Width and length must be positive numbers"
@@ -1319,9 +1570,23 @@ exports.calculateMaterialCost = async (req, res) => {
     }
 
     const pricePerUnit = parseNumber(material.pricePerUnit) ?? parseNumber(material.catalogPrice);
+    let selectedUnitPrice = null;
+
+    if (sizeVariant && material.sizeVariants?.length) {
+      const variant = material.sizeVariants.find(v => v.name.toLowerCase() === sizeVariant.toLowerCase());
+      selectedUnitPrice = parseNumber(variant?.pricePerUnit);
+    }
+
+    if (materialType && material.types?.length) {
+      const typeData = material.types.find(t => t.name.toLowerCase() === materialType.toLowerCase());
+      const typeUnitPrice = parseNumber(typeData?.pricePerUnit);
+      if (typeUnitPrice !== null) selectedUnitPrice = typeUnitPrice;
+    }
+
+    const baseUnitPrice = selectedUnitPrice ?? pricePerUnit;
 
     if (!hasDimensionInput) {
-      const safeUnitPrice = pricePerUnit ?? 0;
+      const safeUnitPrice = baseUnitPrice ?? 0;
       const totalMaterialCost = quantityNumber * safeUnitPrice;
       return res.status(200).json({
         success: true,
@@ -1336,7 +1601,7 @@ exports.calculateMaterialCost = async (req, res) => {
           calculation: {
             mode: 'unit_based',
             quantity: quantityNumber,
-            needsPricing: pricePerUnit === null
+            needsPricing: baseUnitPrice === null
           },
           pricing: {
             pricePerUnit: safeUnitPrice.toFixed(2),
@@ -1348,16 +1613,16 @@ exports.calculateMaterialCost = async (req, res) => {
 
     // Calculate project area in square meters
     const projectAreaSqm = calculateSquareMeters(
-      requiredWidth, 
-      requiredLength, 
-      requiredUnit
+      parsedRequiredWidth,
+      parsedRequiredLength,
+      parsedRequiredUnit
     );
 
-    // Get the appropriate dimensions and price based on variants
-    let standardWidth = material.standardWidth;
-    let standardLength = material.standardLength;
-    let standardUnit = material.standardUnit;
+    // Get dimensions and pricing with override priority:
+    // sizeVariant -> foamVariant -> materialType -> material defaults -> parsed size fallback
+    let stockOverrides = { width: null, length: null, unit: null };
     let pricePerSqm = parseNumber(material.pricePerSqm);
+    let variantUnitPrice = null;
 
     // Check for size variant
     if (sizeVariant && material.sizeVariants?.length) {
@@ -1366,26 +1631,24 @@ exports.calculateMaterialCost = async (req, res) => {
       );
       
       if (variant) {
-        standardWidth = variant.width;
-        standardLength = variant.length;
-        standardUnit = variant.unit || material.standardUnit;
-        if (variant.pricePerUnit) {
-          pricePerSqm = variant.pricePerUnit;
-        }
+        stockOverrides.width = variant.width;
+        stockOverrides.length = variant.length;
+        stockOverrides.unit = variant.unit || stockOverrides.unit;
+        variantUnitPrice = parseNumber(variant.pricePerUnit);
       }
     }
 
     // Check for foam variant
-    if (material.category === 'FOAM' && foamThickness && material.foamVariants?.length) {
+    if (String(material.category || '').trim().toLowerCase() === 'foam' && foamThickness && material.foamVariants?.length) {
       const variant = material.foamVariants.find(v => 
         v.thickness == foamThickness && 
         (!foamDensity || v.density?.toLowerCase() === foamDensity.toLowerCase())
       );
       
       if (variant) {
-        if (variant.width) standardWidth = variant.width;
-        if (variant.length) standardLength = variant.length;
-        if (variant.dimensionUnit) standardUnit = variant.dimensionUnit;
+        if (variant.width) stockOverrides.width = variant.width;
+        if (variant.length) stockOverrides.length = variant.length;
+        if (variant.dimensionUnit) stockOverrides.unit = variant.dimensionUnit;
         if (variant.pricePerSqm) pricePerSqm = variant.pricePerSqm;
       }
     }
@@ -1406,13 +1669,31 @@ exports.calculateMaterialCost = async (req, res) => {
       if (typeData.pricePerSqm) {
         pricePerSqm = typeData.pricePerSqm;
       }
-      
-      if (typeData.standardWidth) standardWidth = typeData.standardWidth;
-      if (typeData.standardLength) standardLength = typeData.standardLength;
+
+      const typeUnitPrice = parseNumber(typeData.pricePerUnit);
+      if (typeUnitPrice !== null) {
+        variantUnitPrice = typeUnitPrice;
+      }
+
+      if (typeData.standardWidth) stockOverrides.width = typeData.standardWidth;
+      if (typeData.standardLength) stockOverrides.length = typeData.standardLength;
+      if (typeData.dimensionUnit) stockOverrides.unit = typeData.dimensionUnit;
     }
 
-    if (!standardWidth || !standardLength || !standardUnit || pricePerSqm === null) {
-      const safeUnitPrice = pricePerUnit ?? 0;
+    const stockDimensions = getStockDimensionsForPricing(material, stockOverrides);
+    const effectiveUnitPrice = variantUnitPrice ?? baseUnitPrice;
+
+    // Excel-aligned model:
+    // pricePerSqm = unitPrice / stockAreaSqm (when unit price exists and stock dimensions are known)
+    if (pricePerSqm === null && stockDimensions && effectiveUnitPrice !== null) {
+      const stockAreaSqm = calculateSquareMeters(stockDimensions.width, stockDimensions.length, stockDimensions.unit);
+      if (stockAreaSqm > 0) {
+        pricePerSqm = effectiveUnitPrice / stockAreaSqm;
+      }
+    }
+
+    if (!stockDimensions || pricePerSqm === null) {
+      const safeUnitPrice = effectiveUnitPrice ?? 0;
       const totalMaterialCost = quantityNumber * safeUnitPrice;
       return res.status(200).json({
         success: true,
@@ -1425,9 +1706,9 @@ exports.calculateMaterialCost = async (req, res) => {
             unit: material.unit || material.pricingUnit || 'piece'
           },
           calculation: {
-            mode: 'unit_based',
+            mode: 'unit_based_fallback',
             quantity: quantityNumber,
-            needsPricing: pricePerUnit === null
+            needsPricing: effectiveUnitPrice === null
           },
           pricing: {
             pricePerUnit: safeUnitPrice.toFixed(2),
@@ -1439,9 +1720,9 @@ exports.calculateMaterialCost = async (req, res) => {
 
     // Calculate standard sheet area
     const standardAreaSqm = calculateSquareMeters(
-      standardWidth,
-      standardLength,
-      standardUnit
+      stockDimensions.width,
+      stockDimensions.length,
+      stockDimensions.unit
     );
 
     // Calculate minimum units needed
@@ -1474,15 +1755,15 @@ exports.calculateMaterialCost = async (req, res) => {
           variant: sizeVariant || null
         },
         project: {
-          requiredWidth,
-          requiredLength,
-          requiredUnit,
+          requiredWidth: parsedRequiredWidth,
+          requiredLength: parsedRequiredLength,
+          requiredUnit: parsedRequiredUnit,
           projectAreaSqm: projectAreaSqm.toFixed(4)
         },
         standard: {
-          standardWidth,
-          standardLength,
-          standardUnit,
+          standardWidth: stockDimensions.width,
+          standardLength: stockDimensions.length,
+          standardUnit: stockDimensions.unit,
           standardAreaSqm: standardAreaSqm.toFixed(4)
         },
         calculation: {
