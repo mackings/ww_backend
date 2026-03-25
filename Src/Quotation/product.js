@@ -1735,8 +1735,12 @@ exports.calculateMaterialCost = async (req, res) => {
       minimumUnits += 1;
     }
 
-    // Calculate pricing
-    const pricePerFullUnit = standardAreaSqm * pricePerSqm;
+    // Never let a computed full-sheet price exceed the actual full-sheet unit price.
+    // This prevents sub-standard-area projects from costing more than one full board.
+    const computedPricePerFullUnit = standardAreaSqm * pricePerSqm;
+    const pricePerFullUnit = effectiveUnitPrice !== null && effectiveUnitPrice > 0
+      ? Math.min(computedPricePerFullUnit, effectiveUnitPrice)
+      : computedPricePerFullUnit;
     const totalMaterialCost = minimumUnits * pricePerFullUnit;
 
     // Calculate waste
@@ -1775,6 +1779,7 @@ exports.calculateMaterialCost = async (req, res) => {
         },
         pricing: {
           pricePerSqm: pricePerSqm.toFixed(2),
+          computedPricePerFullUnit: computedPricePerFullUnit.toFixed(2),
           pricePerFullUnit: pricePerFullUnit.toFixed(2),
           totalMaterialCost: totalMaterialCost.toFixed(2)
         },

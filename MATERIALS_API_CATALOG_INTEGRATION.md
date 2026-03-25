@@ -692,7 +692,52 @@ Mobile UI instructions (platform owner):
 
 ---
 
-### C) Platform owner: Approve Material
+### C) Platform owner: Update Material Price
+
+#### `PATCH /api/platform/materials/:materialId/price`
+
+Use this when a platform owner needs to override pricing for a specific company-owned material.
+
+Request body:
+```json
+{
+  "pricePerUnit": 18500,
+  "pricePerSqm": 9200,
+  "catalogPrice": 18500,
+  "pricingUnit": "piece"
+}
+```
+
+Notes:
+- At least one of `pricePerUnit`, `pricePerSqm`, `catalogPrice`, or `pricingUnit` is required.
+- This endpoint is for company materials only. It rejects global materials.
+- Number fields accept `0` or positive values. Send `null` to clear a stored numeric price.
+
+Success response (200)
+```json
+{
+  "success": true,
+  "message": "Material price updated successfully",
+  "data": {
+    "_id": "6989abcd1234ef567890abcd",
+    "companyName": "Acme Interiors",
+    "name": "Foreign Plywood",
+    "pricePerUnit": 18500,
+    "pricePerSqm": 9200,
+    "catalogPrice": 18500,
+    "pricingUnit": "piece"
+  }
+}
+```
+
+Mobile UI instructions (platform owner):
+1. Open material details from any company.
+2. Allow editing only pricing fields for this action.
+3. Refresh company material listings after success.
+
+---
+
+### D) Platform owner: Approve Material
 
 #### `PATCH /api/platform/materials/:materialId/approve`
 
@@ -711,7 +756,7 @@ After approval:
 
 ---
 
-### D) Platform owner: Reject Material
+### E) Platform owner: Reject Material
 
 #### `PATCH /api/platform/materials/:materialId/reject`
 

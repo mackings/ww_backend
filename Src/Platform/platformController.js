@@ -7,6 +7,7 @@ const Material = require('../../Models/MaterialModel');
 const { sendEmail } = require('../../Utils/emailUtil');
 const { notifyUser, notifyCompany } = require('../../Utils/NotHelper');
 const { getCatalogMaterials } = require('../../Utils/materialCatalog');
+const ApiResponse = require('../../Utils/apiResponse');
 
 const normalizePricingUnit = (unit = '') => {
   const normalized = String(unit || '').trim().toLowerCase();
@@ -1042,6 +1043,91 @@ exports.reseedMaterialsFromCatalog = async (req, res) => {
       success: false,
       message: error.message || 'Error reseeding materials from catalog'
     });
+  }
+};
+
+/**
+ * @desc    Update a company material price
+ * @route   PATCH /api/platform/materials/:materialId/price
+ * @access  Platform Owner
+ */
+exports.updateMaterialPrice = async (req, res) => {
+  try {
+    const { materialId } = req.params;
+    const body = req.body || {};
+    const material = await Material.findById(materialId);
+
+    if (!material) {
+      return ApiResponse.error(res, 'Material not found', 404);
+    }
+
+    if (material.isGlobal) {
+      return ApiResponse.error(res, 'Use this endpoint only for company-owned materials', 400);
+    }
+
+    const hasPricePerUnit = Object.prototype.hasOwnProperty.call(body, 'pricePerUnit');
+    const hasPricePerSqm = Object.prototype.hasOwnProperty.call(body, 'pricePerSqm');
+    const hasCatalogPrice = Object.prototype.hasOwnProperty.call(body, 'catalogPrice');
+    const hasPricingUnit = Object.prototype.hasOwnProperty.call(body, 'pricingUnit');
+
+    if (!hasPricePerUnit && !hasPricePerSqm && !hasCatalogPrice && !hasPricingUnit) {
+      return ApiResponse.error(
+        res,
+        'Provide at least one of pricePerUnit, pricePerSqm, catalogPrice, or pricingUnit',
+        400
+      );
+    }
+
+    const validateNumberField = (fieldName) => {
+      if (!Object.prototype.hasOwnProperty.call(body, fieldName)) return undefined;
+      if (body[fieldName] === null || body[fieldName] === '') return null;
+
+      const value = Number(body[fieldName]);
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(`${fieldName} must be a valid number greater than or equal to 0`);
+      }
+
+      return value;
+    };
+
+    const pricePerUnit = validateNumberField('pricePerUnit');
+    const pricePerSqm = validateNumberField('pricePerSqm');
+    const catalogPrice = validateNumberField('catalogPrice');
+
+    if (pricePerUnit !== undefined) material.pricePerUnit = pricePerUnit;
+    if (pricePerSqm !== undefined) material.pricePerSqm = pricePerSqm;
+    if (catalogPrice !== undefined) {
+      material.catalogPrice = catalogPrice;
+      material.isCatalogPriced = Number(catalogPrice) > 0;
+    }
+    if (hasPricingUnit) material.pricingUnit = body.pricingUnit;
+
+    await material.save();
+
+    const actor = await User.findById(req.user._id).select('fullname');
+    const performerName = actor?.fullname || req.user?.fullname || 'Platform Owner';
+
+    await notifyCompany({
+      companyName: material.companyName,
+      type: 'material_updated',
+      title: 'Material Price Updated',
+      message: `${performerName} updated pricing for material: ${material.name}`,
+      performedBy: req.user._id,
+      performedByName: performerName,
+      metadata: {
+        materialId: material._id,
+        materialName: material.name,
+        pricePerUnit: material.pricePerUnit ?? null,
+        pricePerSqm: material.pricePerSqm ?? null,
+        catalogPrice: material.catalogPrice ?? null,
+        pricingUnit: material.pricingUnit ?? null
+      }
+    });
+
+    return ApiResponse.success(res, 'Material price updated successfully', material);
+  } catch (error) {
+    console.error('Update material price error:', error);
+    return ApiResponse.error(res, error.message || 'Error updating material price', 500);
   }
 };
 
