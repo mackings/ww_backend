@@ -7,11 +7,17 @@ if (mongoose.models.BOM) {
 } else {
 
   const materialSchema = new mongoose.Schema({
+    materialId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Material'
+    },
     name: {
       type: String,
       required: true,
       trim: true
     },
+    category: String,
+    subCategory: String,
     woodType: String,
     foamType: String,
     type: String,
@@ -43,6 +49,14 @@ if (mongoose.models.BOM) {
     subtotal: {
       type: Number,
       default: 0
+    },
+    calculation: {
+      mode: String,
+      minimumUnits: Number,
+      billableUnits: Number,
+      pricePerSqm: Number,
+      pricePerFullUnit: Number,
+      totalMaterialCost: Number
     }
   });
 
@@ -204,7 +218,20 @@ if (mongoose.models.BOM) {
 
     // Calculate material subtotals
     this.materials.forEach(m => {
-      m.subtotal = (m.price || 0) * (m.quantity || 1);
+      const calculatedTotal = m.calculation?.totalMaterialCost;
+      const billableUnits = m.calculation?.billableUnits;
+      const squareMeter = m.squareMeter || 0;
+      const quantity = m.quantity || 1;
+      const price = m.price || 0;
+      if (calculatedTotal !== undefined && calculatedTotal !== null) {
+        m.subtotal = calculatedTotal;
+      } else if (billableUnits !== undefined && billableUnits !== null) {
+        m.subtotal = price * billableUnits;
+      } else if (squareMeter > 0 && m.calculation?.mode === 'area_based') {
+        m.subtotal = price * squareMeter * quantity;
+      } else {
+        m.subtotal = price * quantity;
+      }
     });
 
     // Compute totals
@@ -227,7 +254,18 @@ if (mongoose.models.BOM) {
       const additionalCosts = update.additionalCosts || [];
 
       const materialsCost = materials.reduce((sum, m) => {
-        const subtotal = (m.price || 0) * (m.quantity || 1);
+        const calculatedTotal = m.calculation?.totalMaterialCost;
+        const billableUnits = m.calculation?.billableUnits;
+        const squareMeter = m.squareMeter || 0;
+        const quantity = m.quantity || 1;
+        const price = m.price || 0;
+        const subtotal = calculatedTotal !== undefined && calculatedTotal !== null
+          ? calculatedTotal
+          : billableUnits !== undefined && billableUnits !== null
+            ? price * billableUnits
+            : squareMeter > 0 && m.calculation?.mode === 'area_based'
+              ? price * squareMeter * quantity
+              : price * quantity;
         return sum + subtotal;
       }, 0);
 

@@ -7,7 +7,8 @@ const {
   getCatalogMaterials,
   findCatalogMaterial,
   getCatalogSummary,
-  getCatalogCacheInfo
+  getCatalogCacheInfo,
+  normalizePricingUnit: normalizeCatalogPricingUnit
 } = require('../../Utils/materialCatalog');
 const { buildWeakEtag, setJsonCacheHeaders, sendNotModifiedIfMatch } = require('../../Utils/httpCache');
 
@@ -56,6 +57,8 @@ const asBoolean = (value, fallback = false) => {
 };
 
 const normalizePricingUnit = (unit = '') => {
+  const catalogUnit = normalizeCatalogPricingUnit(unit);
+  if (catalogUnit) return catalogUnit;
   const normalized = String(unit || '').trim().toLowerCase();
   if (!normalized) return 'piece';
   if (normalized.includes('square meter') || normalized === 'sqm') return 'sqm';
@@ -262,18 +265,18 @@ const buildMaterialDimensionRule = (material) => {
 
   const stockDimensions = {
     thickness: thicknessValue,
-    width: null,
-    length: null,
-    unit: normalizeDimensionUnit(material.thicknessUnit || parsedSize.unit || unitFromMaterial || preset.defaultUnit || '')
+    width: parseNumber(material.standardWidth),
+    length: parseNumber(material.standardLength),
+    unit: normalizeDimensionUnit(material.standardUnit || material.thicknessUnit || parsedSize.unit || unitFromMaterial || preset.defaultUnit || '')
   };
 
-  if (parsedSize.pattern === 'triple') {
+  if ((stockDimensions.width === null || stockDimensions.length === null) && parsedSize.pattern === 'triple') {
     stockDimensions.thickness = stockDimensions.thickness ?? parsedSize.dimensions.thickness;
-    stockDimensions.width = parsedSize.dimensions.width;
-    stockDimensions.length = parsedSize.dimensions.length;
-  } else if (parsedSize.pattern === 'double') {
-    stockDimensions.width = parsedSize.dimensions.width;
-    stockDimensions.length = parsedSize.dimensions.length;
+    stockDimensions.width = stockDimensions.width ?? parsedSize.dimensions.width;
+    stockDimensions.length = stockDimensions.length ?? parsedSize.dimensions.length;
+  } else if ((stockDimensions.width === null || stockDimensions.length === null) && parsedSize.pattern === 'double') {
+    stockDimensions.width = stockDimensions.width ?? parsedSize.dimensions.width;
+    stockDimensions.length = stockDimensions.length ?? parsedSize.dimensions.length;
   } else if (parsedSize.pattern === 'single' && preset.singleSizeMapsTo === 'thickness') {
     stockDimensions.thickness = stockDimensions.thickness ?? parsedSize.dimensions.thickness;
   }
@@ -1398,7 +1401,11 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
     const finalUnit = selectedCatalogMaterial ? selectedCatalogMaterial.unit : (unit || '');
     const catalogPrice = selectedCatalogMaterial ? selectedCatalogMaterial.priceNumeric : null;
     const finalPricePerUnit = parseNumber(pricePerUnit) ?? catalogPrice;
-    const finalPricingUnit = pricingUnit || normalizePricingUnit(finalUnit);
+    const finalPricingUnit = pricingUnit || selectedCatalogMaterial?.pricingUnit || normalizePricingUnit(finalUnit);
+    const finalStandardWidth = parseNumber(standardWidth) ?? selectedCatalogMaterial?.standardWidth ?? undefined;
+    const finalStandardLength = parseNumber(standardLength) ?? selectedCatalogMaterial?.standardLength ?? undefined;
+    const finalStandardUnit = standardUnit || selectedCatalogMaterial?.standardUnit || 'inches';
+    const finalPricePerSqm = parseNumber(pricePerSqm) ?? selectedCatalogMaterial?.pricePerSqm ?? null;
     const derivedThickness = selectedCatalogMaterial
       ? { thickness: selectedCatalogMaterial.thickness, thicknessUnit: selectedCatalogMaterial.thicknessUnit }
       : deriveThicknessFromCatalog({ category: finalCategory, size: finalSize });
@@ -1436,10 +1443,10 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
       isCatalogMaterial: Boolean(selectedCatalogMaterial),
       isCatalogPriced: Boolean(selectedCatalogMaterial?.isPriced),
       image: imageUrl,
-      standardWidth,
-      standardLength,
-      standardUnit: standardUnit || 'inches',
-      pricePerSqm: parseNumber(pricePerSqm),
+      standardWidth: finalStandardWidth,
+      standardLength: finalStandardLength,
+      standardUnit: finalStandardUnit,
+      pricePerSqm: finalPricePerSqm,
       pricePerUnit: finalPricePerUnit,
       pricingUnit: finalPricingUnit,
       types: parsedTypes,
@@ -1725,15 +1732,13 @@ exports.calculateMaterialCost = async (req, res) => {
       stockDimensions.unit
     );
 
-    // Calculate minimum units needed
-    let minimumUnits = Math.ceil(projectAreaSqm / standardAreaSqm);
-    
+    // Calculate minimum stock units needed to cover the requested area.
+    // This mirrors the material database model: job area divided by stock area.
     const rawRemainder = projectAreaSqm % standardAreaSqm;
     const wasteThresholdArea = standardAreaSqm * material.wasteThreshold;
-    
-    if (rawRemainder > 0 && rawRemainder > wasteThresholdArea) {
-      minimumUnits += 1;
-    }
+    const extraUnitAdded = rawRemainder > 0;
+    let minimumUnits = Math.ceil(projectAreaSqm / standardAreaSqm);
+    if (minimumUnits < 1) minimumUnits = 1;
 
     // Never let a computed full-sheet price exceed the actual full-sheet unit price.
     // This prevents sub-standard-area projects from costing more than one full board.
@@ -1741,7 +1746,8 @@ exports.calculateMaterialCost = async (req, res) => {
     const pricePerFullUnit = effectiveUnitPrice !== null && effectiveUnitPrice > 0
       ? Math.min(computedPricePerFullUnit, effectiveUnitPrice)
       : computedPricePerFullUnit;
-    const totalMaterialCost = minimumUnits * pricePerFullUnit;
+    const billableUnits = minimumUnits * quantityNumber;
+    const totalMaterialCost = billableUnits * pricePerFullUnit;
 
     // Calculate waste
     const totalAreaUsed = minimumUnits * standardAreaSqm;
@@ -1771,11 +1777,14 @@ exports.calculateMaterialCost = async (req, res) => {
           standardAreaSqm: standardAreaSqm.toFixed(4)
         },
         calculation: {
+          mode: 'area_based',
           minimumUnits,
+          quantity: quantityNumber,
+          billableUnits,
           wasteThreshold: material.wasteThreshold,
           rawRemainder: rawRemainder.toFixed(4),
           wasteThresholdArea: wasteThresholdArea.toFixed(4),
-          extraUnitAdded: rawRemainder > 0 && rawRemainder > wasteThresholdArea
+          extraUnitAdded
         },
         pricing: {
           pricePerSqm: pricePerSqm.toFixed(2),

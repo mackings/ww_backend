@@ -47,22 +47,32 @@ exports.createOrderFromQuotation = async (req, res) => {
       return ApiResponse.error(res, 'No BOMs found for this quotation', 400);
     }
 
-    const bomSnapshots = boms.map(bom => ({
-      bomId: bom._id,
-      bomNumber: bom.bomNumber,
-      name: bom.name,
-      description: bom.description,
-      productId: bom.productId || null,
-      product: bom.product || null,
-      materials: bom.materials || [],
-      additionalCosts: bom.additionalCosts || [],
-      materialsCost: bom.materialsCost || 0,
-      additionalCostsTotal: bom.additionalCostsTotal || 0,
-      totalCost: bom.totalCost || 0,
-      pricing: bom.pricing || {},
-      expectedDuration: bom.expectedDuration || null,
-      dueDate: bom.dueDate || null
-    }));
+    const bomSnapshots = boms.map((bom) => {
+      const snapshot = {
+        bomId: bom._id,
+        bomNumber: bom.bomNumber,
+        name: bom.name,
+        description: bom.description,
+        productId: bom.productId || undefined,
+        materials: bom.materials || [],
+        additionalCosts: bom.additionalCosts || [],
+        materialsCost: bom.materialsCost || 0,
+        additionalCostsTotal: bom.additionalCostsTotal || 0,
+        totalCost: bom.totalCost || 0,
+        pricing: bom.pricing || {},
+        expectedDuration: bom.expectedDuration || null,
+        dueDate: bom.dueDate || null
+      };
+      const productSnapshot = bom.product?.toObject ? bom.product.toObject() : bom.product;
+      if (
+        productSnapshot
+        && typeof productSnapshot === 'object'
+        && Object.values(productSnapshot).some((value) => value !== null && value !== undefined && value !== '')
+      ) {
+        snapshot.product = productSnapshot;
+      }
+      return snapshot;
+    });
 
     const order = new Order({
       userId: req.user._id,

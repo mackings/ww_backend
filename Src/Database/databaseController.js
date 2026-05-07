@@ -12,7 +12,16 @@ const calculateMaterialsTotal = (materials = []) => materials.reduce((sum, mater
   const squareMeter = material.squareMeter || 0;
   const price = material.price || 0;
   const quantity = material.quantity || 1;
-  return sum + (price * squareMeter * quantity);
+  if (material.calculation?.totalMaterialCost !== undefined && material.calculation?.totalMaterialCost !== null) {
+    return sum + Number(material.calculation.totalMaterialCost);
+  }
+  if (material.calculation?.billableUnits !== undefined && material.calculation?.billableUnits !== null) {
+    return sum + (price * Number(material.calculation.billableUnits));
+  }
+  if (squareMeter > 0 && material.calculation?.mode === 'area_based') {
+    return sum + (price * squareMeter * quantity);
+  }
+  return sum + (price * quantity);
 }, 0);
 
 const calculateAdditionalTotal = (additionalCosts = []) => additionalCosts.reduce(

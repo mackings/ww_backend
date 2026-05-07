@@ -3,6 +3,12 @@ const path = require('path');
 
 const MATERIALS_CATALOG_PATH = path.join(__dirname, '..', 'materials_all.csv');
 
+const BOARD_STOCK_DIMENSIONS = Object.freeze({
+  width: 48,
+  length: 96,
+  unit: 'inches'
+});
+
 let cache = {
   mtimeMs: null,
   rows: []
@@ -39,6 +45,30 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const convertToMeters = (value, unit) => {
+  const normalized = normalizeLookup(unit);
+  const conversions = {
+    mm: 0.001,
+    cm: 0.01,
+    m: 1,
+    inch: 0.0254,
+    inches: 0.0254,
+    in: 0.0254,
+    ft: 0.3048
+  };
+  const factor = conversions[normalized];
+  if (!factor) return null;
+  const numeric = toNumber(value);
+  return numeric === null ? null : numeric * factor;
+};
+
+const calculateSquareMeters = (width, length, unit) => {
+  const widthM = convertToMeters(width, unit);
+  const lengthM = convertToMeters(length, unit);
+  if (widthM === null || lengthM === null) return null;
+  return widthM * lengthM;
+};
+
 const deriveThickness = ({ category, size }) => {
   const cat = normalizeLookup(category);
   const rawSize = normalize(size);
@@ -61,6 +91,114 @@ const deriveThickness = ({ category, size }) => {
   }
 
   return { thickness: null, thicknessUnit: 'inches' };
+};
+
+const parseMaterialSize = (size = '') => {
+  const raw = normalize(size);
+  if (!raw) {
+    return {
+      pattern: 'empty',
+      thickness: null,
+      width: null,
+      length: null,
+      unit: null
+    };
+  }
+
+  const numberToken = '([0-9]+(?:\\.[0-9]+)?|[0-9]+\\/[0-9]+)';
+  const tripleRegex = new RegExp(`^\\s*${numberToken}\\s*"?\\s*x\\s*${numberToken}\\s*"?\\s*x\\s*${numberToken}\\s*"?\\s*$`, 'i');
+  const doubleRegex = new RegExp(`^\\s*${numberToken}\\s*"?\\s*x\\s*${numberToken}\\s*"?\\s*$`, 'i');
+  const singleRegex = new RegExp(`^\\s*${numberToken}\\s*("|in|inch|inches|ft|mm|cm|m)?\\s*$`, 'i');
+
+  const triple = raw.match(tripleRegex);
+  if (triple) {
+    return {
+      pattern: 'triple',
+      thickness: parseNumberish(triple[1]),
+      width: parseNumberish(triple[2]),
+      length: parseNumberish(triple[3]),
+      unit: 'inches'
+    };
+  }
+
+  const double = raw.match(doubleRegex);
+  if (double) {
+    return {
+      pattern: 'double',
+      thickness: null,
+      width: parseNumberish(double[1]),
+      length: parseNumberish(double[2]),
+      unit: 'inches'
+    };
+  }
+
+  const single = raw.match(singleRegex);
+  if (single) {
+    return {
+      pattern: 'single',
+      thickness: parseNumberish(single[1]),
+      width: null,
+      length: null,
+      unit: single[2] ? normalize(single[2]).replace(/^"$/, 'inches') : 'inches'
+    };
+  }
+
+  return {
+    pattern: 'descriptor',
+    thickness: null,
+    width: null,
+    length: null,
+    unit: null
+  };
+};
+
+const normalizePricingUnit = (unit = '') => {
+  const normalized = normalizeLookup(unit);
+  if (!normalized) return 'piece';
+  if (normalized.includes('square meter') || normalized === 'sqm') return 'sqm';
+  if (normalized.includes('yard')) return 'yard';
+  if (normalized.includes('yard') || normalized.includes('meter')) return 'meter';
+  if (normalized.includes('pound')) return 'pound';
+  if (normalized.includes('bag')) return 'bag';
+  if (normalized.includes('liter') || normalized.includes('ltr')) return 'liter';
+  if (normalized.includes('pair')) return 'pair';
+  if (normalized.includes('pack')) return 'pack';
+  if (normalized.includes('set')) return 'set';
+  if (normalized.includes('roll')) return 'roll';
+  if (normalized.includes('bucket')) return 'bucket';
+  return 'piece';
+};
+
+const deriveStockDimensions = ({ category, size, unit }) => {
+  const cat = normalizeLookup(category);
+  const parsedSize = parseMaterialSize(size);
+
+  if (cat === 'board' || cat === 'cushion') {
+    return {
+      ...BOARD_STOCK_DIMENSIONS,
+      source: 'material_database_default_sheet_48x96'
+    };
+  }
+
+  if (parsedSize.width !== null && parsedSize.length !== null && parsedSize.unit) {
+    return {
+      width: parsedSize.width,
+      length: parsedSize.length,
+      unit: parsedSize.unit,
+      source: 'material_database_size'
+    };
+  }
+
+  if (normalizePricingUnit(unit) === 'sqm') {
+    return {
+      width: 1,
+      length: 1,
+      unit: 'm',
+      source: 'square_meter_unit'
+    };
+  }
+
+  return null;
 };
 
 const parseCsvLine = (line) => {
@@ -126,6 +264,15 @@ const loadCatalog = () => {
     const priceRaw = normalize(raw.price_raw);
     const priceNumeric = toNumber(raw.price_numeric || priceRaw);
     const thicknessInfo = deriveThickness({ category, size });
+    const parsedSize = parseMaterialSize(size);
+    const stockDimensions = deriveStockDimensions({ category, size, unit });
+    const stockAreaSqm = stockDimensions
+      ? calculateSquareMeters(stockDimensions.width, stockDimensions.length, stockDimensions.unit)
+      : null;
+    const pricingUnit = normalizePricingUnit(unit);
+    const pricePerSqm = priceNumeric !== null && stockAreaSqm
+      ? Number((priceNumeric / stockAreaSqm).toFixed(2))
+      : (pricingUnit === 'sqm' ? priceNumeric : null);
 
     const key = [
       normalizeLookup(material),
@@ -149,7 +296,15 @@ const loadCatalog = () => {
       priceNumeric,
       isPriced: priceNumeric !== null,
       thickness: thicknessInfo.thickness,
-      thicknessUnit: thicknessInfo.thicknessUnit
+      thicknessUnit: thicknessInfo.thicknessUnit,
+      pricingUnit,
+      sizePattern: parsedSize.pattern,
+      standardWidth: stockDimensions?.width ?? null,
+      standardLength: stockDimensions?.length ?? null,
+      standardUnit: stockDimensions?.unit ?? null,
+      stockDimensionSource: stockDimensions?.source ?? null,
+      stockAreaSqm,
+      pricePerSqm
     };
   });
 
@@ -227,5 +382,7 @@ module.exports = {
   getCatalogMaterials,
   findCatalogMaterial,
   getCatalogSummary,
-  getCatalogCacheInfo
+  getCatalogCacheInfo,
+  normalizePricingUnit,
+  calculateSquareMeters
 };

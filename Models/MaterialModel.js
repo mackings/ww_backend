@@ -192,7 +192,7 @@ const materialSchema = new mongoose.Schema({
   pricePerUnit: { type: Number }, // For items sold per piece (handles, nails, etc.)
   pricingUnit: {
     type: String,
-    enum: ['sqm', 'piece', 'pound', 'bag', 'liter', 'meter'],
+    enum: ['sqm', 'piece', 'pound', 'bag', 'liter', 'meter', 'yard', 'pair', 'pack', 'roll', 'set', 'bucket'],
     default: 'sqm'
   },
 

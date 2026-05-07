@@ -6,19 +6,8 @@ const Quotation = require('../../Models/quotationModel');
 const Material = require('../../Models/MaterialModel');
 const { sendEmail } = require('../../Utils/emailUtil');
 const { notifyUser, notifyCompany } = require('../../Utils/NotHelper');
-const { getCatalogMaterials } = require('../../Utils/materialCatalog');
+const { getCatalogMaterials, normalizePricingUnit } = require('../../Utils/materialCatalog');
 const ApiResponse = require('../../Utils/apiResponse');
-
-const normalizePricingUnit = (unit = '') => {
-  const normalized = String(unit || '').trim().toLowerCase();
-  if (!normalized) return 'piece';
-  if (normalized.includes('square meter') || normalized === 'sqm') return 'sqm';
-  if (normalized.includes('yard') || normalized.includes('meter')) return 'meter';
-  if (normalized.includes('pound')) return 'pound';
-  if (normalized.includes('bag')) return 'bag';
-  if (normalized.includes('liter') || normalized.includes('ltr')) return 'liter';
-  return 'piece';
-};
 
 /**
  * @desc    Get platform dashboard statistics
@@ -982,7 +971,7 @@ exports.reseedMaterialsFromCatalog = async (req, res) => {
     const performedByName = req.user?.fullname || 'Platform Owner';
 
     const seedPayload = catalog.map((item) => {
-      const pricingUnit = normalizePricingUnit(item.unit);
+      const pricingUnit = item.pricingUnit || normalizePricingUnit(item.unit);
       const isSqmPricing = pricingUnit === 'sqm';
 
       return {
@@ -1012,11 +1001,14 @@ exports.reseedMaterialsFromCatalog = async (req, res) => {
         catalogPrice: item.priceNumeric,
         isCatalogMaterial: true,
         isCatalogPriced: item.isPriced,
+        standardWidth: item.standardWidth,
+        standardLength: item.standardLength,
+        standardUnit: item.standardUnit || 'inches',
         pricingUnit,
-        pricePerSqm: isSqmPricing ? item.priceNumeric : null,
+        pricePerSqm: item.pricePerSqm ?? (isSqmPricing ? item.priceNumeric : null),
         pricePerUnit: isSqmPricing ? null : item.priceNumeric,
         isActive: true,
-        notes: 'Seeded from Excel catalog (materials_all.csv)'
+        notes: `Seeded from Excel catalog (materials_all.csv). Stock dimension source: ${item.stockDimensionSource || 'none'}`
       };
     });
 

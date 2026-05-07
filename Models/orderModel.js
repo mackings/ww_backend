@@ -11,8 +11,8 @@ const orderItemSchema = new mongoose.Schema({
   thickness: Number,
   unit: {
     type: String,
-    enum: ['cm', 'inch', 'm','ft','in'],
-    default: 'cm'
+    default: 'cm',
+    trim: true
   },
   squareMeter: Number,
   quantity: {
@@ -46,8 +46,8 @@ const orderBomMaterialSchema = new mongoose.Schema({
   thickness: Number,
   unit: {
     type: String,
-    enum: ['cm', 'inch', 'm', 'mm','ft','in'],
-    default: 'cm'
+    default: 'cm',
+    trim: true
   },
   squareMeter: {
     type: Number,
@@ -97,10 +97,8 @@ const orderBomSchema = new mongoose.Schema({
     ref: 'Product'
   },
   product: {
-    productId: String,
-    name: String,
-    description: String,
-    image: String
+    type: mongoose.Schema.Types.Mixed,
+    default: undefined
   },
   materials: [orderBomMaterialSchema],
   additionalCosts: [orderBomAdditionalCostSchema],
