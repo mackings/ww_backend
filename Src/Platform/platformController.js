@@ -5,7 +5,7 @@ const Order = require('../../Models/orderModel');
 const Quotation = require('../../Models/quotationModel');
 const Material = require('../../Models/MaterialModel');
 const { sendEmail } = require('../../Utils/emailUtil');
-const { notifyUser, notifyCompany } = require('../../Utils/NotHelper');
+const { notifyUser, notifyCompany, notifyAllCompanyOwners } = require('../../Utils/NotHelper');
 const { getCatalogMaterials, normalizePricingUnit } = require('../../Utils/materialCatalog');
 const ApiResponse = require('../../Utils/apiResponse');
 
@@ -1120,6 +1120,66 @@ exports.updateMaterialPrice = async (req, res) => {
   } catch (error) {
     console.error('Update material price error:', error);
     return ApiResponse.error(res, error.message || 'Error updating material price', 500);
+  }
+};
+
+/**
+ * @desc    Delete any material by ID
+ * @route   DELETE /api/platform/materials/:materialId
+ * @access  Platform Owner
+ */
+exports.deleteMaterial = async (req, res) => {
+  try {
+    const { materialId } = req.params;
+
+    const material = await Material.findById(materialId);
+
+    if (!material) {
+      return ApiResponse.error(res, 'Material not found', 404);
+    }
+
+    const deletedMaterial = {
+      _id: material._id,
+      name: material.name,
+      category: material.category,
+      companyName: material.companyName,
+      isGlobal: material.isGlobal,
+      status: material.status
+    };
+
+    await material.deleteOne();
+
+    const actor = await User.findById(req.user._id).select('fullname');
+    const performerName = actor?.fullname || req.user?.fullname || 'Platform Owner';
+
+    const notificationPayload = {
+      type: 'material_deleted',
+      title: 'Material Deleted',
+      message: `${performerName} deleted material: ${material.name}`,
+      performedBy: req.user._id,
+      performedByName: performerName,
+      metadata: {
+        materialId: material._id,
+        materialName: material.name,
+        category: material.category,
+        isGlobal: material.isGlobal
+      }
+    };
+
+    if (material.isGlobal) {
+      await notifyAllCompanyOwners(notificationPayload);
+    } else {
+      await notifyCompany({
+        companyName: material.companyName,
+        ...notificationPayload,
+        excludeUserId: req.user._id
+      });
+    }
+
+    return ApiResponse.success(res, 'Material deleted successfully', deletedMaterial);
+  } catch (error) {
+    console.error('Delete material error:', error);
+    return ApiResponse.error(res, 'Error deleting material', 500);
   }
 };
 

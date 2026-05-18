@@ -512,12 +512,36 @@
         "message": "Global product created successfully",
         "data": {}
       }
+    },
+
+    {
+      "name": "Delete Material",
+      "method": "DELETE",
+      "path": "/api/platform/materials/:materialId",
+      "description": "Delete any material by ID, including global materials and company-submitted materials. Works for every authenticated platform admin account where isPlatformOwner is true.",
+      "authentication": "Required (Platform Owner)",
+      "pathParameters": {
+        "materialId": { "type": "string", "required": true, "description": "MongoDB ObjectId of the material to delete" }
+      },
+      "requestExample": "DELETE /api/platform/materials/66a1e6ff9a8f9d0022b7f7c4",
+      "responseExample": {
+        "success": true,
+        "message": "Material deleted successfully",
+        "data": {
+          "_id": "66a1e6ff9a8f9d0022b7f7c4",
+          "name": "Premium Mahogany",
+          "category": "WOOD",
+          "companyName": "GLOBAL",
+          "isGlobal": true,
+          "status": "approved"
+        }
+      }
     }
   ],
 
   "endpointSummary": {
-    "totalEndpoints": 11,
-    "new": 4,
+    "totalEndpoints": 12,
+    "new": 5,
     "categories": {
       "dashboard": ["GET /dashboard/stats", "GET /stats/overview"],
       "companies": [
@@ -532,6 +556,9 @@
         "PATCH /products/:id/approve",
         "PATCH /products/:id/reject",
         "POST /products/global"
+      ],
+      "materials": [
+        "DELETE /materials/:materialId (NEW)"
       ]
     }
   },
@@ -556,6 +583,11 @@
       "description": "Platform owner needs to review specific product before approval",
       "endpoint": "GET /api/platform/products/:id",
       "returns": "Full product details with approval history"
+    },
+    "deleteMaterial": {
+      "description": "Platform owner needs to remove a global or company material from the system",
+      "endpoint": "DELETE /api/platform/materials/:materialId",
+      "returns": "Deleted material metadata"
     }
   },
 
@@ -567,7 +599,8 @@
     "step4": "GET /api/platform/companies/:id/profile - Company details",
     "step5": "GET /api/platform/products/all - See all products",
     "step6": "GET /api/platform/products/pending - Review approvals",
-    "step7": "PATCH /api/platform/products/:id/approve - Approve products"
+    "step7": "PATCH /api/platform/products/:id/approve - Approve products",
+    "step8": "DELETE /api/platform/materials/:materialId - Delete a material"
   },
 
   
