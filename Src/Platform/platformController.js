@@ -1092,7 +1092,7 @@ exports.updateMaterialPrice = async (req, res) => {
       material.catalogPrice = catalogPrice;
       material.isCatalogPriced = Number(catalogPrice) > 0;
     }
-    if (hasPricingUnit) material.pricingUnit = body.pricingUnit;
+    if (hasPricingUnit) material.pricingUnit = normalizePricingUnit(body.pricingUnit);
 
     await material.save();
 

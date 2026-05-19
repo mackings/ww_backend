@@ -18,6 +18,8 @@ const normalize = (value) => String(value || '').trim();
 
 const normalizeLookup = (value) => normalize(value).toLowerCase();
 
+const normalizeComparable = (value) => normalizeLookup(value).replace(/[^a-z0-9]/g, '');
+
 const parseFraction = (value) => {
   const text = normalize(value);
   if (!text) return null;
@@ -312,7 +314,7 @@ const loadCatalog = () => {
   return rows;
 };
 
-const isSameValue = (left, right) => normalizeLookup(left) === normalizeLookup(right);
+const isSameValue = (left, right) => normalizeComparable(left) === normalizeComparable(right);
 
 const getCatalogMaterials = () => loadCatalog();
 

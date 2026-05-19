@@ -69,6 +69,53 @@ const normalizePricingUnit = (unit = '') => {
   return 'piece';
 };
 
+const normalizeGroupingKey = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const resolveExistingMaterialGrouping = async ({ category, subCategory, companyName, isGlobalMaterial }) => {
+  const resolved = {
+    category: String(category || '').trim(),
+    subCategory: String(subCategory || '').trim()
+  };
+
+  const categoryKey = normalizeGroupingKey(resolved.category);
+  if (!categoryKey) return resolved;
+
+  const visibilityQuery = isGlobalMaterial
+    ? {}
+    : {
+        $or: [
+          { companyName },
+          { isGlobal: true, status: 'approved' }
+        ]
+      };
+
+  const existingMaterials = await Material.find(visibilityQuery)
+    .select('category subCategory')
+    .lean();
+
+  const categoryMatch = existingMaterials.find((material) => (
+    normalizeGroupingKey(material.category) === categoryKey
+  ));
+
+  if (!categoryMatch) return resolved;
+
+  resolved.category = categoryMatch.category;
+
+  const subCategoryKey = normalizeGroupingKey(resolved.subCategory);
+  if (!subCategoryKey) return resolved;
+
+  const subCategoryMatch = existingMaterials.find((material) => (
+    normalizeGroupingKey(material.category) === categoryKey
+    && normalizeGroupingKey(material.subCategory) === subCategoryKey
+  ));
+
+  if (subCategoryMatch) {
+    resolved.subCategory = subCategoryMatch.subCategory || '';
+  }
+
+  return resolved;
+};
+
 const parseNumber = (value) => {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(String(value).replace(/,/g, '').trim());
@@ -1394,14 +1441,26 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
       imageUrl = uploadResult.url;
     }
 
-    const finalCategory = selectedCatalogMaterial ? selectedCatalogMaterial.category : category;
-    const finalSubCategory = selectedCatalogMaterial ? selectedCatalogMaterial.subCategory : (subCategory || '');
+    const resolvedGrouping = selectedCatalogMaterial
+      ? {
+          category: selectedCatalogMaterial.category,
+          subCategory: selectedCatalogMaterial.subCategory
+        }
+      : await resolveExistingMaterialGrouping({
+          category,
+          subCategory,
+          companyName: req.companyName,
+          isGlobalMaterial
+        });
+
+    const finalCategory = resolvedGrouping.category;
+    const finalSubCategory = resolvedGrouping.subCategory;
     const finalSize = selectedCatalogMaterial ? selectedCatalogMaterial.size : (size || '');
     const finalColor = selectedCatalogMaterial ? selectedCatalogMaterial.color : (color || '');
     const finalUnit = selectedCatalogMaterial ? selectedCatalogMaterial.unit : (unit || '');
     const catalogPrice = selectedCatalogMaterial ? selectedCatalogMaterial.priceNumeric : null;
     const finalPricePerUnit = parseNumber(pricePerUnit) ?? catalogPrice;
-    const finalPricingUnit = pricingUnit || selectedCatalogMaterial?.pricingUnit || normalizePricingUnit(finalUnit);
+    const finalPricingUnit = normalizePricingUnit(pricingUnit || selectedCatalogMaterial?.pricingUnit || finalUnit);
     const finalStandardWidth = parseNumber(standardWidth) ?? selectedCatalogMaterial?.standardWidth ?? undefined;
     const finalStandardLength = parseNumber(standardLength) ?? selectedCatalogMaterial?.standardLength ?? undefined;
     const finalStandardUnit = standardUnit || selectedCatalogMaterial?.standardUnit || 'inches';

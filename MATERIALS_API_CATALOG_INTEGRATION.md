@@ -313,6 +313,8 @@ Content type:
 ### Behavior
 - By default (`useCatalog=true`) API validates input against supported catalog.
 - If match is exact, category/subCategory/size/unit/color are auto-aligned to catalog.
+- Catalog matching is tolerant of separators/casing, so values like `Foreign-Plywood`, `foreign plywood`, and `Foreign_Plywood` match the same supported subcategory.
+- When `useCatalog=false`, new materials can still be added to an existing category/subCategory without exact spelling. The API compares typed values loosely against visible existing materials and stores the existing canonical spelling when matched; otherwise it stores the typed value as a new category/subCategory.
 - Thickness rules:
   - For `Board` and `Wood`, `thickness` is required.
   - If the catalog row contains thickness-like `size` (e.g. `0.25"` for Board, or `1"x10"x144"` for Wood), thickness is auto-derived.
@@ -334,7 +336,7 @@ Content type:
 - `useCatalog` (boolean-like, optional, default `true`)
 - `pricePerUnit` (number, optional override)
 - `pricePerSqm` (number, optional for sqm-based materials)
-- `pricingUnit` (string, optional; default inferred from unit)
+- `pricingUnit` (string, optional; default inferred from unit; allowed values include `sqm`, `piece`, `yard`, `meter`, `pound`, `bag`, `liter`, `pair`, `pack`, `roll`, `set`, `bucket`)
 - `standardWidth`, `standardLength`, `standardUnit` (optional; for sheet/sqm calculations)
 - `types`, `sizeVariants`, `foamVariants`, `commonThicknesses` (JSON array string or array)
 - `wasteThreshold` (number, optional, default `0.75`)
@@ -781,7 +783,7 @@ Mobile UI instructions (platform owner):
 2. Call `GET /api/product/materials/supported` with filters to choose exact material variant.
 3. Create material with `POST /api/product/creatematerial` using selected catalog row + optional image.
 4. For costing:
-   - use unit mode for piece/pack/pair/set/yard items
+   - use unit mode for piece/pack/pair/set/yard items; pass the direct quantity as `quantity` (`1`, `1.5`, `2`, etc.)
    - use sheet mode only when dimensions + sqm pricing are available
 5. Use `GET /api/product/materials` for actual approved materials visible to user/company.
 

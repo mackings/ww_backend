@@ -77,6 +77,8 @@
         "required": ["name", "category"],
         "optionalForSheets": ["standardWidth", "standardLength", "standardUnit", "pricePerSqm"],
         "optionalForHardware": ["pricePerUnit", "pricingUnit"],
+        "pricingUnitValues": ["sqm", "piece", "yard", "meter", "pound", "bag", "liter", "pair", "pack", "roll", "set", "bucket"],
+        "subcategoryMatching": "category and subCategory are matched loosely against existing visible materials when useCatalog=false; matching existing labels are stored with their canonical spelling, otherwise the typed value creates a new category/subCategory.",
         "allOptional": ["types", "sizeVariants", "foamVariants", "commonThicknesses", "wasteThreshold", "notes"]
       },
 
@@ -163,6 +165,19 @@
             "pricePerUnit": 500,
             "pricingUnit": "piece",
             "notes": "Stainless steel handles"
+          }
+        },
+        {
+          "scenario": "Creating Yard-Based Material",
+          "body": {
+            "name": "Fabric Roll",
+            "category": "FABRIC",
+            "subCategory": "Velvet",
+            "useCatalog": false,
+            "pricePerUnit": 2500,
+            "pricingUnit": "yard",
+            "unit": "Yard",
+            "notes": "Quantity is entered directly as yards: 1, 1.5, 2, etc."
           }
         }
       ],

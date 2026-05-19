@@ -30,6 +30,9 @@
           "pricePerSqm",
           "pricePerUnit",
           "pricingUnit",
+          "unit",
+          "subCategory",
+          "useCatalog",
           "types (JSON string)",
           "sizeVariants (JSON string)",
           "foamVariants (JSON string)",
@@ -37,6 +40,12 @@
           "wasteThreshold",
           "notes"
         ]
+      },
+
+      "pricingUnits": {
+        "allowed": ["sqm", "piece", "yard", "meter", "pound", "bag", "liter", "pair", "pack", "roll", "set", "bucket"],
+        "yardBehavior": "Yard is unit-based like piece. Send pricePerUnit and pricingUnit=yard; costing uses direct quantity values such as 1, 1.5, or 2.",
+        "subcategoryMatching": "For custom materials with useCatalog=false, category/subCategory are loosely matched against existing visible materials and stored using the existing spelling when matched."
       },
 
       "imageUploadSpecs": {

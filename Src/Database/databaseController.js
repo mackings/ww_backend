@@ -7,6 +7,7 @@ const Product = require('../../Models/productModel');
 const Material = require('../../Models/MaterialModel');
 const Invoice = require('../../Models/invoice');
 const Receipt = require('../../Models/receiptModel');
+const { normalizePricingUnit } = require('../../Utils/materialCatalog');
 
 const calculateMaterialsTotal = (materials = []) => materials.reduce((sum, material) => {
   const squareMeter = material.squareMeter || 0;
@@ -1052,7 +1053,7 @@ exports.updateMaterialTypePricing = async (req, res) => {
     const update = {};
     if (hasPricePerUnit) update.pricePerUnit = body.pricePerUnit;
     if (hasPricePerSqm) update.pricePerSqm = body.pricePerSqm;
-    if (pricingUnit !== undefined) update.pricingUnit = pricingUnit;
+    if (pricingUnit !== undefined) update.pricingUnit = normalizePricingUnit(pricingUnit);
     if (body.standardWidth !== undefined) update.standardWidth = body.standardWidth;
     if (body.standardLength !== undefined) update.standardLength = body.standardLength;
     if (body.standardUnit !== undefined) update.standardUnit = body.standardUnit;
@@ -1130,7 +1131,7 @@ exports.updateMaterial = async (req, res) => {
     if (body.standardUnit !== undefined) update.standardUnit = body.standardUnit;
     if (body.pricePerSqm !== undefined) update.pricePerSqm = body.pricePerSqm;
     if (body.pricePerUnit !== undefined) update.pricePerUnit = body.pricePerUnit;
-    if (body.pricingUnit !== undefined) update.pricingUnit = body.pricingUnit;
+    if (body.pricingUnit !== undefined) update.pricingUnit = normalizePricingUnit(body.pricingUnit);
     if (body.wasteThreshold !== undefined) update.wasteThreshold = body.wasteThreshold;
     if (body.unit !== undefined) update.unit = body.unit;
     if (body.notes !== undefined) update.notes = body.notes;
