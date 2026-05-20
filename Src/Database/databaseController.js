@@ -94,6 +94,113 @@ const getCompanyScope = (req, res, { requireCompany = false } = {}) => {
   return req.companyName;
 };
 
+const parseNumber = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const asBoolean = (value, fallback = false) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  return ['true', '1', 'yes'].includes(String(value).trim().toLowerCase());
+};
+
+const getMaterialUnitPrice = (material) => (
+  parseNumber(material.pricePerUnit) ?? parseNumber(material.catalogPrice) ?? null
+);
+
+const isMaterialPriced = (material) => {
+  const unitPrice = getMaterialUnitPrice(material);
+  const sqmPrice = parseNumber(material.pricePerSqm);
+  return (unitPrice !== null && unitPrice > 0) || (sqmPrice !== null && sqmPrice > 0);
+};
+
+const materialToDatabaseVariant = (material) => {
+  const obj = material?.toObject ? material.toObject() : material;
+  const unitPrice = getMaterialUnitPrice(obj || {});
+
+  return {
+    _id: obj._id,
+    id: obj._id,
+    name: obj.name,
+    companyName: obj.companyName,
+    category: obj.category || '',
+    subCategory: obj.subCategory || '',
+    size: obj.size || '',
+    unit: obj.unit || '',
+    color: obj.color || '',
+    thickness: obj.thickness ?? null,
+    thicknessUnit: obj.thicknessUnit || 'inches',
+    pricingUnit: obj.pricingUnit || 'piece',
+    unitPrice,
+    pricePerUnit: obj.pricePerUnit ?? null,
+    pricePerSqm: obj.pricePerSqm ?? null,
+    catalogPrice: obj.catalogPrice ?? null,
+    isPriced: isMaterialPriced(obj || {}),
+    isCatalogMaterial: obj.isCatalogMaterial || false,
+    image: obj.image || null,
+    status: obj.status,
+    isGlobal: obj.isGlobal,
+    isActive: obj.isActive
+  };
+};
+
+const buildMaterialScopeQuery = (companyName, { includeGlobal = false } = {}) => {
+  if (!companyName) return {};
+  if (!includeGlobal) return { companyName };
+
+  return {
+    $or: [
+      { companyName },
+      { isGlobal: true, status: 'approved' }
+    ]
+  };
+};
+
+const applyMaterialFilters = (query, { search, category, subCategory, status, priced, isActive }) => {
+  if (status) {
+    query.status = status;
+  }
+
+  if (category) {
+    query.category = { $regex: `^${String(category).trim()}$`, $options: 'i' };
+  }
+
+  if (subCategory) {
+    query.subCategory = { $regex: `^${String(subCategory).trim()}$`, $options: 'i' };
+  }
+
+  if (isActive !== undefined) {
+    query.isActive = asBoolean(isActive, true);
+  }
+
+  if (search) {
+    query.$and = query.$and || [];
+    query.$and.push({
+      $or: [
+        { name: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } },
+        { subCategory: { $regex: search, $options: 'i' } },
+        { size: { $regex: search, $options: 'i' } },
+        { unit: { $regex: search, $options: 'i' } },
+        { color: { $regex: search, $options: 'i' } }
+      ]
+    });
+  }
+
+  if (priced !== undefined) {
+    const shouldBePriced = asBoolean(priced);
+    query.$and = query.$and || [];
+    query.$and.push(shouldBePriced
+      ? { $or: [{ pricePerUnit: { $gt: 0 } }, { catalogPrice: { $gt: 0 } }, { pricePerSqm: { $gt: 0 } }] }
+      : { $and: [{ pricePerUnit: { $in: [null, 0] } }, { catalogPrice: { $in: [null, 0] } }, { pricePerSqm: { $in: [null, 0] } }] });
+  }
+
+  return query;
+};
+
 /**
  * @desc    Get all quotations (company)
  * @route   GET /api/database/quotations
@@ -946,6 +1053,98 @@ exports.getMaterials = async (req, res) => {
   } catch (error) {
     console.error('Get materials (database) error:', error);
     return ApiResponse.error(res, 'Error fetching materials', 500);
+  }
+};
+
+/**
+ * @desc    Get materials grouped by category -> subCategory -> variants
+ * @route   GET /api/database/materials/grouped
+ * @access  Private
+ */
+exports.getMaterialsGrouped = async (req, res) => {
+  try {
+    const companyName = getCompanyScope(req, res);
+    if (companyName === undefined) return;
+
+    const {
+      search,
+      category,
+      subCategory,
+      status,
+      priced,
+      isActive,
+      includeGlobal
+    } = req.query;
+
+    const shouldIncludeGlobal = req.user?.isPlatformOwner
+      ? asBoolean(includeGlobal, !companyName)
+      : asBoolean(includeGlobal, true);
+
+    const query = applyMaterialFilters(
+      buildMaterialScopeQuery(companyName, { includeGlobal: shouldIncludeGlobal }),
+      { search, category, subCategory, status, priced, isActive }
+    );
+
+    const materials = await Material.find(query).sort({ category: 1, subCategory: 1, name: 1 });
+    const categoryMap = new Map();
+
+    materials.forEach((material) => {
+      const variant = materialToDatabaseVariant(material);
+      const categoryKey = variant.category || 'Uncategorized';
+      const subCategoryKey = variant.subCategory || 'General';
+
+      if (!categoryMap.has(categoryKey)) {
+        categoryMap.set(categoryKey, {
+          category: categoryKey,
+          total: 0,
+          priced: 0,
+          unpriced: 0,
+          subCategories: new Map()
+        });
+      }
+
+      const categoryNode = categoryMap.get(categoryKey);
+      if (!categoryNode.subCategories.has(subCategoryKey)) {
+        categoryNode.subCategories.set(subCategoryKey, {
+          subCategory: subCategoryKey,
+          total: 0,
+          priced: 0,
+          unpriced: 0,
+          variants: []
+        });
+      }
+
+      const subCategoryNode = categoryNode.subCategories.get(subCategoryKey);
+      subCategoryNode.variants.push(variant);
+      subCategoryNode.total += 1;
+      categoryNode.total += 1;
+
+      if (variant.isPriced) {
+        subCategoryNode.priced += 1;
+        categoryNode.priced += 1;
+      } else {
+        subCategoryNode.unpriced += 1;
+        categoryNode.unpriced += 1;
+      }
+    });
+
+    const data = Array.from(categoryMap.values()).map((categoryNode) => ({
+      category: categoryNode.category,
+      total: categoryNode.total,
+      priced: categoryNode.priced,
+      unpriced: categoryNode.unpriced,
+      subCategories: Array.from(categoryNode.subCategories.values())
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: materials.length,
+      categoryCount: data.length,
+      data
+    });
+  } catch (error) {
+    console.error('Get grouped materials (database) error:', error);
+    return ApiResponse.error(res, 'Error fetching grouped materials', 500);
   }
 };
 

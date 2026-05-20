@@ -600,6 +600,77 @@
       }
     },
     {
+      "name": "Get Materials Grouped (Database)",
+      "method": "GET",
+      "path": "/database/materials/grouped",
+      "access": "Company Users (Owner/Admin/Staff) + Platform Owner",
+      "description": "Fetch all matched materials grouped by category -> subCategory -> variants. This endpoint is not paginated, so category/subcategory groups are not hidden by page limits. Company users see their company materials plus approved global materials by default. Platform owners see all materials by default, or can filter by companyName.",
+      "queryParameters": {
+        "companyName": { "type": "string", "optional": true, "description": "Platform owner only. Exact company scope when needed." },
+        "category": { "type": "string", "optional": true },
+        "subCategory": { "type": "string", "optional": true },
+        "status": { "type": "string", "optional": true, "enum": ["pending", "approved", "rejected"] },
+        "search": { "type": "string", "optional": true, "description": "Searches name, category, subCategory, size, unit, and color." },
+        "priced": { "type": "boolean", "optional": true },
+        "isActive": { "type": "boolean", "optional": true },
+        "includeGlobal": { "type": "boolean", "optional": true, "description": "Company users default to true. Platform owners default to true when no companyName is provided." }
+      },
+      "sampleRequest": {
+        "method": "GET",
+        "url": "https://ww-backend.vercel.app/api/database/materials/grouped",
+        "headers": {
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "sampleResponse": {
+        "success": true,
+        "count": 1,
+        "categoryCount": 1,
+        "data": [
+          {
+            "category": "Nail",
+            "total": 1,
+            "priced": 1,
+            "unpriced": 0,
+            "subCategories": [
+              {
+                "subCategory": "Airgun",
+                "total": 1,
+                "priced": 1,
+                "unpriced": 0,
+                "variants": [
+                  {
+                    "_id": "66a1e6ff9a8f9d0022b7f7c4",
+                    "id": "66a1e6ff9a8f9d0022b7f7c4",
+                    "name": "Tornado",
+                    "companyName": "GLOBAL",
+                    "category": "Nail",
+                    "subCategory": "Airgun",
+                    "size": "",
+                    "unit": "Pound",
+                    "color": "",
+                    "thickness": null,
+                    "thicknessUnit": "inches",
+                    "pricingUnit": "pound",
+                    "unitPrice": 800,
+                    "pricePerUnit": 800,
+                    "pricePerSqm": null,
+                    "catalogPrice": null,
+                    "isPriced": true,
+                    "isCatalogMaterial": false,
+                    "image": null,
+                    "status": "approved",
+                    "isGlobal": true,
+                    "isActive": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "Update Material (Database)",
       "method": "PUT",
       "path": "/database/materials/:id",

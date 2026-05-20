@@ -35,6 +35,7 @@ router.delete('/products/:id', databaseController.deleteProduct);
 
 // Materials
 router.get('/materials', databaseController.getMaterials);
+router.get('/materials/grouped', databaseController.getMaterialsGrouped);
 router.put('/materials/pricing/type', requireOwnerOrAdmin, databaseController.updateMaterialTypePricing);
 router.put('/materials/:id', databaseController.updateMaterial);
 router.delete('/materials/:id', databaseController.deleteMaterial);
