@@ -8,7 +8,8 @@ const {
   findCatalogMaterial,
   getCatalogSummary,
   getCatalogCacheInfo,
-  normalizePricingUnit: normalizeCatalogPricingUnit
+  normalizePricingUnit: normalizeCatalogPricingUnit,
+  normalizeDimensionUnit: normalizeCatalogDimensionUnit
 } = require('../../Utils/materialCatalog');
 const { buildWeakEtag, setJsonCacheHeaders, sendNotModifiedIfMatch } = require('../../Utils/httpCache');
 
@@ -231,6 +232,8 @@ const getDimensionPreset = (category = '') => {
 };
 
 const normalizeDimensionUnit = (unit = '') => {
+  const catalogUnit = normalizeCatalogDimensionUnit(unit);
+  if (catalogUnit) return catalogUnit;
   const normalized = String(unit || '').trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === '"' || normalized === 'in' || normalized === 'inch' || normalized === 'inches') return 'inches';
@@ -1397,7 +1400,7 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
 
     let selectedCatalogMaterial = null;
     if (shouldValidateAgainstCatalog) {
-      const { exact, matches } = findCatalogMaterial({
+      let { exact, matches } = findCatalogMaterial({
         material: requestedMaterialName,
         category,
         subCategory,
@@ -1405,6 +1408,23 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
         unit,
         color
       });
+
+      if (!exact && catalogMaterial) {
+        const fallback = findCatalogMaterial({
+          material: catalogMaterial,
+          size,
+          unit,
+          color
+        });
+        exact = fallback.exact;
+        matches = fallback.matches;
+      }
+
+      if (!exact && catalogMaterial) {
+        const fallback = findCatalogMaterial({ material: catalogMaterial });
+        exact = fallback.exact;
+        matches = fallback.matches;
+      }
 
       if (!exact) {
         if (matches.length > 1) {
@@ -1441,36 +1461,33 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
       imageUrl = uploadResult.url;
     }
 
-    const resolvedGrouping = selectedCatalogMaterial
-      ? {
-          category: selectedCatalogMaterial.category,
-          subCategory: selectedCatalogMaterial.subCategory
-        }
-      : await resolveExistingMaterialGrouping({
-          category,
-          subCategory,
-          companyName: req.companyName,
-          isGlobalMaterial
-        });
+    const requestedCategory = String(category || selectedCatalogMaterial?.category || '').trim();
+    const requestedSubCategory = String(subCategory || selectedCatalogMaterial?.subCategory || '').trim();
+    const resolvedGrouping = await resolveExistingMaterialGrouping({
+      category: requestedCategory,
+      subCategory: requestedSubCategory,
+      companyName: req.companyName,
+      isGlobalMaterial
+    });
 
     const finalCategory = resolvedGrouping.category;
     const finalSubCategory = resolvedGrouping.subCategory;
-    const finalSize = selectedCatalogMaterial ? selectedCatalogMaterial.size : (size || '');
-    const finalColor = selectedCatalogMaterial ? selectedCatalogMaterial.color : (color || '');
-    const finalUnit = selectedCatalogMaterial ? selectedCatalogMaterial.unit : (unit || '');
+    const finalSize = String(size || selectedCatalogMaterial?.size || '').trim();
+    const finalColor = String(color || selectedCatalogMaterial?.color || '').trim();
+    const finalUnit = String(unit || selectedCatalogMaterial?.unit || '').trim();
     const catalogPrice = selectedCatalogMaterial ? selectedCatalogMaterial.priceNumeric : null;
     const finalPricePerUnit = parseNumber(pricePerUnit) ?? catalogPrice;
     const finalPricingUnit = normalizePricingUnit(pricingUnit || selectedCatalogMaterial?.pricingUnit || finalUnit);
     const finalStandardWidth = parseNumber(standardWidth) ?? selectedCatalogMaterial?.standardWidth ?? undefined;
     const finalStandardLength = parseNumber(standardLength) ?? selectedCatalogMaterial?.standardLength ?? undefined;
-    const finalStandardUnit = standardUnit || selectedCatalogMaterial?.standardUnit || 'inches';
+    const finalStandardUnit = normalizeDimensionUnit(standardUnit || selectedCatalogMaterial?.standardUnit || 'inches') || 'inches';
     const finalPricePerSqm = parseNumber(pricePerSqm) ?? selectedCatalogMaterial?.pricePerSqm ?? null;
     const derivedThickness = selectedCatalogMaterial
       ? { thickness: selectedCatalogMaterial.thickness, thicknessUnit: selectedCatalogMaterial.thicknessUnit }
       : deriveThicknessFromCatalog({ category: finalCategory, size: finalSize });
 
     const thicknessValue = parseNumberish(thickness) ?? derivedThickness.thickness;
-    const thicknessUnitValue = (thicknessUnit || derivedThickness.thicknessUnit || 'inches');
+    const thicknessUnitValue = normalizeDimensionUnit(thicknessUnit || derivedThickness.thicknessUnit || 'inches') || 'inches';
 
     if (!finalCategory) {
       return res.status(400).json({
@@ -1488,7 +1505,7 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
     }
 
     const material = new Material({
-      name: selectedCatalogMaterial ? selectedCatalogMaterial.material : name,
+      name: String(name || selectedCatalogMaterial?.material || requestedMaterialName).trim(),
       companyName: isGlobalMaterial ? 'GLOBAL' : req.companyName,
       category: finalCategory,
       subCategory: finalSubCategory,
@@ -1895,6 +1912,9 @@ exports.updateMaterial = async (req, res) => {
     const oldCategory = material.category;
 
     // Update material
+    if (updateData.pricingUnit !== undefined) updateData.pricingUnit = normalizePricingUnit(updateData.pricingUnit);
+    if (updateData.standardUnit !== undefined) updateData.standardUnit = normalizeDimensionUnit(updateData.standardUnit);
+    if (updateData.thicknessUnit !== undefined) updateData.thicknessUnit = normalizeDimensionUnit(updateData.thicknessUnit);
     Object.assign(material, updateData);
     await material.save();
 

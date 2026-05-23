@@ -9,6 +9,28 @@ const { notifyUser, notifyCompany, notifyAllCompanyOwners } = require('../../Uti
 const { getCatalogMaterials, normalizePricingUnit } = require('../../Utils/materialCatalog');
 const ApiResponse = require('../../Utils/apiResponse');
 
+const parseNumber = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getMaterialUnitPrice = (material) => (
+  parseNumber(material.pricePerUnit) ?? parseNumber(material.catalogPrice) ?? null
+);
+
+const materialToApi = (material) => {
+  const obj = material?.toObject ? material.toObject() : material;
+  const unitPrice = getMaterialUnitPrice(obj || {});
+  const pricePerSqm = parseNumber(obj?.pricePerSqm);
+
+  return {
+    ...(obj || {}),
+    unitPrice,
+    isPriced: (unitPrice !== null && unitPrice > 0) || (pricePerSqm !== null && pricePerSqm > 0)
+  };
+};
+
 /**
  * @desc    Get platform dashboard statistics
  * @route   GET /api/platform/dashboard/stats
@@ -89,29 +111,81 @@ exports.getDashboardStats = async (req, res) => {
 exports.getAllCompanies = async (req, res) => {
   try {
     const { page = 1, limit = 20, search, isActive } = req.query;
+    const safePage = Math.max(parseInt(page, 10) || 1, 1);
+    const safeLimit = Math.max(parseInt(limit, 10) || 20, 1);
+    const normalizeCompanyName = (value) => String(value || '').trim().toLowerCase();
+    const companiesByName = new Map();
 
-    const query = {};
+    const companyDocs = await Company.find({})
+      .populate('owner', 'fullname email phoneNumber')
+      .sort({ createdAt: -1 });
+
+    companyDocs.forEach((company) => {
+      companiesByName.set(normalizeCompanyName(company.name), {
+        ...company.toObject(),
+        source: 'company_collection',
+        isRegisteredDocument: true
+      });
+    });
+
+    const usersWithCompanies = await User.find({
+      'companies.0': { $exists: true }
+    }).select('fullname email phoneNumber companies createdAt');
+
+    usersWithCompanies.forEach((user) => {
+      (user.companies || []).forEach((embeddedCompany) => {
+        const name = String(embeddedCompany.name || '').trim();
+        if (!name) return;
+
+        const key = normalizeCompanyName(name);
+        if (companiesByName.has(key)) return;
+
+        companiesByName.set(key, {
+          _id: `embedded:${encodeURIComponent(name)}`,
+          name,
+          email: embeddedCompany.email || user.email,
+          phoneNumber: embeddedCompany.phoneNumber || user.phoneNumber,
+          address: embeddedCompany.address || '',
+          owner: embeddedCompany.role === 'owner'
+            ? {
+                _id: user._id,
+                fullname: user.fullname,
+                email: user.email,
+                phoneNumber: user.phoneNumber
+              }
+            : null,
+          isActive: embeddedCompany.accessGranted !== false,
+          createdAt: embeddedCompany.joinedAt || user.createdAt,
+          updatedAt: embeddedCompany.joinedAt || user.createdAt,
+          source: 'user_embedded_company',
+          isRegisteredDocument: false
+        });
+      });
+    });
+
+    let companies = Array.from(companiesByName.values());
 
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
-      ];
+      const searchTerm = String(search).trim().toLowerCase();
+      companies = companies.filter((company) => (
+        String(company.name || '').toLowerCase().includes(searchTerm)
+        || String(company.email || '').toLowerCase().includes(searchTerm)
+      ));
     }
 
     if (isActive !== undefined) {
-      query.isActive = isActive === 'true';
+      const activeFlag = isActive === true || isActive === 'true';
+      companies = companies.filter((company) => Boolean(company.isActive) === activeFlag);
     }
 
-    const companies = await Company.find(query)
-      .populate('owner', 'fullname email phoneNumber')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+    companies.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+    const total = companies.length;
+    const paginatedCompanies = companies.slice((safePage - 1) * safeLimit, safePage * safeLimit);
 
     // Get stats for each company
     const companiesWithStats = await Promise.all(
-      companies.map(async (company) => {
+      paginatedCompanies.map(async (company) => {
         const [productCount, orderCount, quotationCount, userCount] = await Promise.all([
           Product.countDocuments({ companyName: company.name }),
           Order.countDocuments({ companyName: company.name }),
@@ -131,16 +205,14 @@ exports.getAllCompanies = async (req, res) => {
       })
     );
 
-    const total = await Company.countDocuments(query);
-
     res.status(200).json({
       success: true,
       data: companiesWithStats,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: safePage,
+        limit: safeLimit,
         total,
-        pages: Math.ceil(total / limit)
+        pages: Math.ceil(total / safeLimit)
       }
     });
   } catch (error) {
@@ -1270,7 +1342,7 @@ exports.approveMaterial = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Material approved successfully',
-      data: material
+      data: materialToApi(material)
     });
   } catch (error) {
     console.error('Approve material error:', error);

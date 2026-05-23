@@ -71,6 +71,18 @@ const calculateSquareMeters = (width, length, unit) => {
   return widthM * lengthM;
 };
 
+const normalizeDimensionUnit = (unit = '') => {
+  const normalized = normalizeLookup(unit);
+  if (!normalized) return null;
+  if (['"', 'in', 'inch', 'inches'].includes(normalized)) return 'inches';
+  if (['mm', 'millimeter', 'millimeters', 'millimetre', 'millimetres'].includes(normalized)) return 'mm';
+  if (['cm', 'centimeter', 'centimeters', 'centimetre', 'centimetres'].includes(normalized)) return 'cm';
+  if (['m', 'meter', 'meters', 'metre', 'metres'].includes(normalized)) return 'm';
+  if (['ft', 'feet', 'foot'].includes(normalized)) return 'ft';
+  if (['sqm', 'square meter', 'square meters', 'm2', 'm^2'].includes(normalized)) return 'sqm';
+  return normalized;
+};
+
 const deriveThickness = ({ category, size }) => {
   const cat = normalizeLookup(category);
   const rawSize = normalize(size);
@@ -160,9 +172,11 @@ const normalizePricingUnit = (unit = '') => {
   if (normalized.includes('square meter') || normalized === 'sqm') return 'sqm';
   if (normalized.includes('yard')) return 'yard';
   if (normalized.includes('yard') || normalized.includes('meter')) return 'meter';
-  if (normalized.includes('pound')) return 'pound';
+  if (normalized.includes('pound') || normalized === 'lb' || normalized === 'lbs') return 'pound';
   if (normalized.includes('bag')) return 'bag';
   if (normalized.includes('liter') || normalized.includes('ltr')) return 'liter';
+  if (normalized.includes('gallon') || normalized === 'gal') return 'gallon';
+  if (normalized.includes('kilogram') || normalized === 'kg' || normalized === 'kgs') return 'kilogram';
   if (normalized.includes('pair')) return 'pair';
   if (normalized.includes('pack')) return 'pack';
   if (normalized.includes('set')) return 'set';
@@ -386,5 +400,6 @@ module.exports = {
   getCatalogSummary,
   getCatalogCacheInfo,
   normalizePricingUnit,
+  normalizeDimensionUnit,
   calculateSquareMeters
 };

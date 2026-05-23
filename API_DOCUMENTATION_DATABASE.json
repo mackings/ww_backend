@@ -685,6 +685,13 @@
         },
         "body": {
           "name": "MDF Premium",
+          "category": "BOARD",
+          "subCategory": "MDF",
+          "unit": "Piece",
+          "pricingUnit": "piece",
+          "size": "2inch",
+          "color": "Black",
+          "pricePerUnit": 2500,
           "pricePerSqm": 9000,
           "standardWidth": 48,
           "standardLength": 96,
@@ -697,6 +704,15 @@
         "data": {
           "_id": "66a1e6ff9a8f9d0022b7f7c4",
           "name": "MDF Premium",
+          "category": "BOARD",
+          "subCategory": "MDF",
+          "unit": "Piece",
+          "pricingUnit": "piece",
+          "size": "2inch",
+          "color": "Black",
+          "pricePerUnit": 2500,
+          "unitPrice": 2500,
+          "isPriced": true,
           "pricePerSqm": 9000
         }
       }

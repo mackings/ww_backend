@@ -77,12 +77,50 @@
         "required": ["name", "category"],
         "optionalForSheets": ["standardWidth", "standardLength", "standardUnit", "pricePerSqm"],
         "optionalForHardware": ["pricePerUnit", "pricingUnit"],
-        "pricingUnitValues": ["sqm", "piece", "yard", "meter", "pound", "bag", "liter", "pair", "pack", "roll", "set", "bucket"],
+        "pricingUnitValues": ["sqm", "piece", "yard", "meter", "pound", "bag", "liter", "gallon", "kilogram", "pair", "pack", "roll", "set", "bucket"],
+        "unitValues": ["Piece", "Yard", "Liter", "Pound weight", "Gallon", "Kilogram"],
+        "dimensionUnitAliases": {
+          "meters": "stored as m",
+          "feet": "stored as ft",
+          "inches": "stored as inches"
+        },
+        "catalogOverrideBehavior": "When useCatalog=true and catalogMaterial is provided, mobile may still send edited name, category, subCategory, size, color, unit, and pricing fields. Backend uses catalog metadata where useful but saves mobile-provided name/category/subCategory/size/color/unit when present.",
         "subcategoryMatching": "category and subCategory are matched loosely against existing visible materials when useCatalog=false; matching existing labels are stored with their canonical spelling, otherwise the typed value creates a new category/subCategory.",
         "allOptional": ["types", "sizeVariants", "foamVariants", "commonThicknesses", "wasteThreshold", "notes"]
       },
 
       "exampleRequests": [
+        {
+          "scenario": "Creating Other/Custom Category Material",
+          "body": {
+            "name": "CustomCategory_SubCategory_Piece_2inch_Black",
+            "category": "CustomCategory",
+            "subCategory": "SubCategory",
+            "useCatalog": false,
+            "unit": "Piece",
+            "pricingUnit": "piece",
+            "size": "2inch",
+            "color": "Black",
+            "pricePerUnit": 2500
+          }
+        },
+        {
+          "scenario": "Creating Catalog Material With Mobile Overrides",
+          "body": {
+            "catalogMaterial": "Old Catalog Name",
+            "name": "Hardware_Animal_Skin_sqm_1_Black",
+            "category": "Hardware",
+            "subCategory": "Animal Skin",
+            "useCatalog": true,
+            "unit": "sqm",
+            "pricingUnit": "sqm",
+            "thickness": 1,
+            "thicknessUnit": "inches",
+            "standardWidth": 48,
+            "standardLength": 96,
+            "color": "Black"
+          }
+        },
         {
           "scenario": "Creating Wood Material",
           "body": {
@@ -178,6 +216,23 @@
             "pricingUnit": "yard",
             "unit": "Yard",
             "notes": "Quantity is entered directly as yards: 1, 1.5, 2, etc."
+          }
+        },
+        {
+          "scenario": "Creating Liter/Gallon/Kilogram/Pound Material",
+          "body": {
+            "name": "Wood Finish",
+            "category": "Finishing",
+            "subCategory": "Liquid",
+            "useCatalog": false,
+            "unit": "Gallon",
+            "pricingUnit": "gallon",
+            "pricePerUnit": 12000,
+            "standardWidth": 48,
+            "standardLength": 96,
+            "standardUnit": "feet",
+            "thickness": 0.5,
+            "thicknessUnit": "meters"
           }
         }
       ],

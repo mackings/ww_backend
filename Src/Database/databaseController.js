@@ -7,7 +7,7 @@ const Product = require('../../Models/productModel');
 const Material = require('../../Models/MaterialModel');
 const Invoice = require('../../Models/invoice');
 const Receipt = require('../../Models/receiptModel');
-const { normalizePricingUnit } = require('../../Utils/materialCatalog');
+const { normalizePricingUnit, normalizeDimensionUnit } = require('../../Utils/materialCatalog');
 
 const calculateMaterialsTotal = (materials = []) => materials.reduce((sum, material) => {
   const squareMeter = material.squareMeter || 0;
@@ -115,6 +115,17 @@ const isMaterialPriced = (material) => {
   const unitPrice = getMaterialUnitPrice(material);
   const sqmPrice = parseNumber(material.pricePerSqm);
   return (unitPrice !== null && unitPrice > 0) || (sqmPrice !== null && sqmPrice > 0);
+};
+
+const materialToDatabaseApi = (material) => {
+  const obj = material?.toObject ? material.toObject() : material;
+  const unitPrice = getMaterialUnitPrice(obj || {});
+
+  return {
+    ...(obj || {}),
+    unitPrice,
+    isPriced: isMaterialPriced(obj || {})
+  };
 };
 
 const materialToDatabaseVariant = (material) => {
@@ -1040,14 +1051,14 @@ exports.getMaterials = async (req, res) => {
       ];
     }
 
-    const data = await Material.find(query)
+    const materials = await Material.find(query)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit, 10));
     const total = await Material.countDocuments(query);
 
     return ApiResponse.success(res, 'Materials fetched successfully', {
-      data,
+      data: materials.map(materialToDatabaseApi),
       pagination: buildPagination(page, limit, total)
     });
   } catch (error) {
@@ -1255,7 +1266,7 @@ exports.updateMaterialTypePricing = async (req, res) => {
     if (pricingUnit !== undefined) update.pricingUnit = normalizePricingUnit(pricingUnit);
     if (body.standardWidth !== undefined) update.standardWidth = body.standardWidth;
     if (body.standardLength !== undefined) update.standardLength = body.standardLength;
-    if (body.standardUnit !== undefined) update.standardUnit = body.standardUnit;
+    if (body.standardUnit !== undefined) update.standardUnit = normalizeDimensionUnit(body.standardUnit);
 
     const result = await Material.updateMany(query, { $set: update }, { runValidators: true });
 
@@ -1324,10 +1335,14 @@ exports.updateMaterial = async (req, res) => {
 
     if (body.name !== undefined) update.name = body.name;
     if (body.category !== undefined) update.category = String(body.category).trim();
+    if (body.subCategory !== undefined) update.subCategory = String(body.subCategory).trim();
+    if (body.size !== undefined) update.size = String(body.size).trim();
+    if (body.color !== undefined) update.color = String(body.color).trim();
     if (body.image !== undefined) update.image = body.image;
     if (body.standardWidth !== undefined) update.standardWidth = body.standardWidth;
     if (body.standardLength !== undefined) update.standardLength = body.standardLength;
-    if (body.standardUnit !== undefined) update.standardUnit = body.standardUnit;
+    if (body.standardUnit !== undefined) update.standardUnit = normalizeDimensionUnit(body.standardUnit);
+    if (body.thicknessUnit !== undefined) update.thicknessUnit = normalizeDimensionUnit(body.thicknessUnit);
     if (body.pricePerSqm !== undefined) update.pricePerSqm = body.pricePerSqm;
     if (body.pricePerUnit !== undefined) update.pricePerUnit = body.pricePerUnit;
     if (body.pricingUnit !== undefined) update.pricingUnit = normalizePricingUnit(body.pricingUnit);
@@ -1373,7 +1388,7 @@ exports.updateMaterial = async (req, res) => {
       excludeUserId: req.user.id
     });
 
-    return ApiResponse.success(res, 'Material updated successfully', updatedMaterial);
+    return ApiResponse.success(res, 'Material updated successfully', materialToDatabaseApi(updatedMaterial));
   } catch (error) {
     console.error('Update material (database) error:', error);
     return ApiResponse.error(res, error.message || 'Error updating material', 500);

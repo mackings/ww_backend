@@ -265,7 +265,7 @@
       "name": "Get All Companies",
       "method": "GET",
       "path": "/api/platform/companies",
-      "description": "List all companies with basic statistics",
+      "description": "List all companies with basic statistics. Includes companies from the Company collection and companies embedded on user accounts, so newer app-created companies still show even if no Company document exists yet.",
       "authentication": "Required (Platform Owner)",
       "queryParameters": {
         "page": { "type": "number", "default": 1 },
@@ -283,6 +283,8 @@
             "phoneNumber": "+1234567890",
             "address": "456 Carpenter Ave",
             "isActive": true,
+            "source": "company_collection",
+            "isRegisteredDocument": true,
             "owner": {
               "_id": "507f1f77bcf86cd799439011",
               "fullname": "John Smith",

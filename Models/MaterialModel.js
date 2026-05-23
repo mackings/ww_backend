@@ -31,7 +31,7 @@ const materialTypeSchema = new mongoose.Schema({
 // Common thickness schema for all material types
 const commonThicknessSchema = new mongoose.Schema({
   thickness: { type: Number, required: true },
-  unit: { type: String, default: 'mm', enum: ['mm', 'cm', 'inches', 'ft'] }
+  unit: { type: String, default: 'mm', enum: ['mm', 'cm', 'm', 'meter', 'meters', 'inches', 'ft', 'feet'] }
 }, { _id: false });
 
 // Main material schema
@@ -192,7 +192,7 @@ const materialSchema = new mongoose.Schema({
   pricePerUnit: { type: Number }, // For items sold per piece (handles, nails, etc.)
   pricingUnit: {
     type: String,
-    enum: ['sqm', 'piece', 'pound', 'bag', 'liter', 'meter', 'yard', 'pair', 'pack', 'roll', 'set', 'bucket'],
+    enum: ['sqm', 'piece', 'pound', 'bag', 'liter', 'gallon', 'kilogram', 'meter', 'yard', 'pair', 'pack', 'roll', 'set', 'bucket'],
     default: 'sqm'
   },
 

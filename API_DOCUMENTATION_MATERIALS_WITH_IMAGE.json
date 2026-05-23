@@ -43,8 +43,12 @@
       },
 
       "pricingUnits": {
-        "allowed": ["sqm", "piece", "yard", "meter", "pound", "bag", "liter", "pair", "pack", "roll", "set", "bucket"],
+        "allowed": ["sqm", "piece", "yard", "meter", "pound", "bag", "liter", "gallon", "kilogram", "pair", "pack", "roll", "set", "bucket"],
         "yardBehavior": "Yard is unit-based like piece. Send pricePerUnit and pricingUnit=yard; costing uses direct quantity values such as 1, 1.5, or 2.",
+        "newMobileUnits": "unit accepts friendly display values like Liter, Pound weight, Gallon, and Kilogram. pricingUnit should be liter, pound, gallon, or kilogram.",
+        "dimensionUnitAliases": "standardUnit and thicknessUnit accept meters and feet; they are stored as m and ft.",
+        "otherCategory": "For mobile Other category, send category as the typed Category Name and useCatalog=false.",
+        "catalogOverrides": "When useCatalog=true and catalogMaterial is provided, backend accepts edited name/category/subCategory/size/color/unit from mobile and saves those values when present.",
         "subcategoryMatching": "For custom materials with useCatalog=false, category/subCategory are loosely matched against existing visible materials and stored using the existing spelling when matched."
       },
 
