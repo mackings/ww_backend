@@ -31,6 +31,9 @@ router.post('/products/global', upload.single("image"), platformController.creat
 // Materials
 router.get('/materials/pending', platformController.getPendingMaterials);
 router.post('/materials/reseed-from-catalog', platformController.reseedMaterialsFromCatalog);
+router.delete('/materials', platformController.deleteMaterialsBulk);
+router.patch('/materials/approve', platformController.approveMaterialsBulk);
+router.patch('/materials/reject', platformController.rejectMaterialsBulk);
 router.delete('/materials/:materialId', platformController.deleteMaterial);
 router.patch('/materials/:materialId/price', platformController.updateMaterialPrice);
 router.patch('/materials/:materialId/approve', platformController.approveMaterial);

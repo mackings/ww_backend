@@ -10,8 +10,54 @@ const generateOTP = require('../../Utils/genOtp');
 const generateToken = require('../../Utils/genToken');
 const { ALL_PERMISSIONS, getEffectivePermissions } = require('../../Utils/defaultCompanyPermissions');
 
-// const Company = require('../../Models/companyModel');
-// const UserCompany = require('../../Models/userCompanyModel');
+const Company = require('../../Models/companyModel');
+const UserCompany = require('../../Models/userCompanyModel');
+
+const syncUserCompaniesFromLinks = async (user) => {
+  if (!user) return user;
+
+  const userCompanyLinks = await UserCompany.find({
+    user: user._id,
+    accessGranted: true,
+  }).populate('company');
+
+  let changed = false;
+
+  userCompanyLinks.forEach((link) => {
+    if (!link.company) return;
+
+    const alreadyInEmbeddedCompanies = (user.companies || []).some(
+      (embeddedCompany) => String(embeddedCompany.name || '').trim().toLowerCase() === String(link.company.name || '').trim().toLowerCase()
+    );
+
+    if (alreadyInEmbeddedCompanies) return;
+
+    user.companies.push({
+      name: link.company.name,
+      email: link.company.email || user.email,
+      phoneNumber: link.company.phoneNumber || user.phoneNumber,
+      address: link.company.address,
+      role: link.role,
+      position: link.position,
+      invitedBy: link.invitedBy,
+      accessGranted: true,
+      joinedAt: link.joinedAt || link.createdAt || new Date(),
+      permissions: link.role === 'staff' ? {} : { ...ALL_PERMISSIONS },
+    });
+    changed = true;
+  });
+
+  if (changed) {
+    const currentActiveCompany = user.companies[user.activeCompanyIndex || 0];
+    if (!currentActiveCompany || currentActiveCompany.accessGranted === false) {
+      const firstAccessibleCompanyIndex = user.companies.findIndex((company) => company.accessGranted !== false);
+      user.activeCompanyIndex = Math.max(firstAccessibleCompanyIndex, 0);
+    }
+    await user.save();
+  }
+
+  return user;
+};
 
 
 
@@ -118,6 +164,13 @@ exports.signin = async (req, res) => {
       return ApiResponse.error(res, 'Your account has been deactivated. Please contact support.', 403);
     }
 
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return ApiResponse.error(res, 'Invalid email or password', 401);
+    }
+
+    await syncUserCompaniesFromLinks(user);
+
     // ✅ Skip company access checks for platform owners
     if (!user.isPlatformOwner) {
       // ✅ Check if user has access to at least one company
@@ -125,11 +178,6 @@ exports.signin = async (req, res) => {
       if (!hasAccess) {
         return ApiResponse.error(res, 'Your access has been revoked. Please contact your administrator.', 403);
       }
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return ApiResponse.error(res, 'Invalid email or password', 401);
     }
 
     // ✅ Set active company to the first one with access (if current one is revoked)
@@ -205,6 +253,33 @@ exports.createCompany = async (req, res) => {
     user.activeCompanyIndex = user.companies.length - 1;
 
     await user.save();
+
+    const company = await Company.findOneAndUpdate(
+      { name: companyName },
+      {
+        $setOnInsert: {
+          name: companyName,
+          email: companyEmail || user.email,
+          phoneNumber: companyPhone || user.phoneNumber,
+          address: companyAddress,
+          owner: user._id,
+          isActive: true,
+        },
+      },
+      { new: true, upsert: true }
+    );
+
+    await UserCompany.updateOne(
+      { user: user._id, company: company._id },
+      {
+        $setOnInsert: {
+          role: 'owner',
+          position: 'Owner',
+          accessGranted: true,
+        },
+      },
+      { upsert: true }
+    );
 
     return ApiResponse.success(res, 'Company created successfully', {
       company: user.companies[user.activeCompanyIndex],
@@ -349,6 +424,34 @@ exports.inviteStaff = async (req, res) => {
 
       await staffUser.save();
 
+      const company = await Company.findOneAndUpdate(
+        { name: activeCompany.name },
+        {
+          $setOnInsert: {
+            name: activeCompany.name,
+            email: activeCompany.email || inviter.email,
+            phoneNumber: activeCompany.phoneNumber || inviter.phoneNumber,
+            address: activeCompany.address,
+            owner: inviter._id,
+            isActive: true,
+          },
+        },
+        { new: true, upsert: true }
+      );
+
+      await UserCompany.updateOne(
+        { user: staffUser._id, company: company._id },
+        {
+          $set: {
+            role,
+            position,
+            accessGranted: true,
+            invitedBy: inviter._id,
+          },
+        },
+        { upsert: true }
+      );
+
       console.log('✅ Added company to existing user:', staffUser._id);
 
       // Send notification email
@@ -398,6 +501,34 @@ exports.inviteStaff = async (req, res) => {
         activeCompanyIndex: 0,
         isVerified: false,
       });
+
+      const company = await Company.findOneAndUpdate(
+        { name: activeCompany.name },
+        {
+          $setOnInsert: {
+            name: activeCompany.name,
+            email: activeCompany.email || inviter.email,
+            phoneNumber: activeCompany.phoneNumber || inviter.phoneNumber,
+            address: activeCompany.address,
+            owner: inviter._id,
+            isActive: true,
+          },
+        },
+        { new: true, upsert: true }
+      );
+
+      await UserCompany.updateOne(
+        { user: staffUser._id, company: company._id },
+        {
+          $setOnInsert: {
+            role,
+            position,
+            accessGranted: true,
+            invitedBy: inviter._id,
+          },
+        },
+        { upsert: true }
+      );
 
       console.log('✅ New user created:', staffUser._id);
 
@@ -850,7 +981,7 @@ exports.resetPassword = async (req, res) => {
  */
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await syncUserCompaniesFromLinks(await User.findById(req.user._id));
 
     return ApiResponse.success(res, 'User fetched successfully', {
       id: user._id,

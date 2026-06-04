@@ -517,6 +517,151 @@
     },
 
     {
+      "name": "Get Pending Materials",
+      "method": "GET",
+      "path": "/api/platform/materials/pending",
+      "description": "Get company-submitted materials waiting for platform-owner approval. Use this list for material approval bulk selection.",
+      "authentication": "Required (Platform Owner)",
+      "queryParameters": {
+        "page": { "type": "number", "default": 1 },
+        "limit": { "type": "number", "default": 20 },
+        "companyName": { "type": "string", "optional": true },
+        "category": { "type": "string", "optional": true }
+      },
+      "responseExample": {
+        "success": true,
+        "data": [],
+        "pagination": { "page": 1, "limit": 20, "total": 8, "pages": 1 }
+      }
+    },
+
+    {
+      "name": "Bulk Approve Materials",
+      "method": "PATCH",
+      "path": "/api/platform/materials/approve",
+      "description": "Approve multiple pending materials selected from the material approval menu.",
+      "authentication": "Required (Platform Owner)",
+      "contentType": "application/json",
+      "requestBody": {
+        "materialIds": {
+          "type": "array<string>",
+          "required": true,
+          "description": "MongoDB ObjectIds of pending materials to approve. Duplicate IDs are ignored."
+        },
+        "notes": { "type": "string", "optional": true }
+      },
+      "requestExample": {
+        "method": "PATCH",
+        "url": "/api/platform/materials/approve",
+        "headers": {
+          "Authorization": "Bearer <platform_owner_token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "materialIds": [
+            "66a1e6ff9a8f9d0022b7f7c4",
+            "66a1e7049a8f9d0022b7f7c5"
+          ],
+          "notes": "Approved from material approval bulk selection"
+        }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Materials approved successfully",
+        "data": {
+          "requestedCount": 2,
+          "approvedCount": 2,
+          "invalidIds": [],
+          "notFoundIds": [],
+          "skippedMaterials": [],
+          "approvedMaterials": []
+        }
+      }
+    },
+
+    {
+      "name": "Bulk Reject Materials",
+      "method": "PATCH",
+      "path": "/api/platform/materials/reject",
+      "description": "Reject multiple pending materials selected from the material approval menu.",
+      "authentication": "Required (Platform Owner)",
+      "contentType": "application/json",
+      "requestBody": {
+        "materialIds": {
+          "type": "array<string>",
+          "required": true,
+          "description": "MongoDB ObjectIds of pending materials to reject. Duplicate IDs are ignored."
+        },
+        "reason": { "type": "string", "required": true }
+      },
+      "requestExample": {
+        "method": "PATCH",
+        "url": "/api/platform/materials/reject",
+        "headers": {
+          "Authorization": "Bearer <platform_owner_token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "materialIds": [
+            "66a1e6ff9a8f9d0022b7f7c4",
+            "66a1e7049a8f9d0022b7f7c5"
+          ],
+          "reason": "Missing required material pricing details"
+        }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Materials rejected successfully",
+        "data": {
+          "requestedCount": 2,
+          "rejectedCount": 2,
+          "invalidIds": [],
+          "notFoundIds": [],
+          "skippedMaterials": [],
+          "rejectedMaterials": []
+        }
+      }
+    },
+
+    {
+      "name": "Approve Material",
+      "method": "PATCH",
+      "path": "/api/platform/materials/:materialId/approve",
+      "description": "Approve one pending material",
+      "authentication": "Required (Platform Owner)",
+      "pathParameters": {
+        "materialId": { "type": "string", "required": true, "description": "MongoDB ObjectId of the pending material to approve" }
+      },
+      "requestBody": {
+        "notes": { "type": "string", "optional": true }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Material approved successfully",
+        "data": {}
+      }
+    },
+
+    {
+      "name": "Reject Material",
+      "method": "PATCH",
+      "path": "/api/platform/materials/:materialId/reject",
+      "description": "Reject one pending material with a reason",
+      "authentication": "Required (Platform Owner)",
+      "pathParameters": {
+        "materialId": { "type": "string", "required": true, "description": "MongoDB ObjectId of the pending material to reject" }
+      },
+      "requestBody": {
+        "reason": { "type": "string", "required": true }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Material rejected successfully",
+        "data": {}
+      }
+    },
+
+    {
       "name": "Delete Material",
       "method": "DELETE",
       "path": "/api/platform/materials/:materialId",
@@ -538,12 +683,96 @@
           "status": "approved"
         }
       }
+    },
+
+    {
+      "name": "Bulk Delete Materials",
+      "method": "DELETE",
+      "path": "/api/platform/materials",
+      "description": "Delete multiple materials by ID in one request. Works for global materials and company-submitted materials. Requires platform owner authentication and an explicit confirm flag.",
+      "authentication": "Required (Platform Owner)",
+      "contentType": "application/json",
+      "requestBody": {
+        "confirm": { "type": "boolean", "required": true, "description": "Must be true to execute the bulk deletion" },
+        "materialIds": {
+          "type": "array<string>",
+          "required": true,
+          "description": "MongoDB ObjectIds of materials to delete. Duplicate IDs are ignored."
+        }
+      },
+      "requestExample": {
+        "method": "DELETE",
+        "url": "/api/platform/materials",
+        "headers": {
+          "Authorization": "Bearer <platform_owner_token>",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "confirm": true,
+          "materialIds": [
+            "66a1e6ff9a8f9d0022b7f7c4",
+            "66a1e7049a8f9d0022b7f7c5"
+          ]
+        }
+      },
+      "responseExample": {
+        "success": true,
+        "message": "Materials deleted successfully",
+        "data": {
+          "requestedCount": 2,
+          "deletedCount": 2,
+          "invalidIds": [],
+          "notFoundIds": [],
+          "deletedMaterials": [
+            {
+              "_id": "66a1e6ff9a8f9d0022b7f7c4",
+              "name": "Premium Mahogany",
+              "category": "WOOD",
+              "companyName": "GLOBAL",
+              "isGlobal": true,
+              "status": "approved"
+            },
+            {
+              "_id": "66a1e7049a8f9d0022b7f7c5",
+              "name": "Custom Foam",
+              "category": "FOAM",
+              "companyName": "WoodCraft",
+              "isGlobal": false,
+              "status": "approved"
+            }
+          ]
+        }
+      },
+      "errorExamples": {
+        "missingConfirm": {
+          "success": false,
+          "message": "This action deletes multiple materials. Set confirm=true to proceed.",
+          "errors": null
+        },
+        "invalidBody": {
+          "success": false,
+          "message": "materialIds must be an array of MongoDB ObjectIds",
+          "errors": null
+        },
+        "noMatches": {
+          "success": false,
+          "message": "No matching materials found",
+          "errors": {
+            "requestedCount": 2,
+            "invalidIds": [],
+            "notFoundIds": [
+              "66a1e6ff9a8f9d0022b7f7c4",
+              "66a1e7049a8f9d0022b7f7c5"
+            ]
+          }
+        }
+      }
     }
   ],
 
   "endpointSummary": {
-    "totalEndpoints": 12,
-    "new": 5,
+    "totalEndpoints": 18,
+    "new": 8,
     "categories": {
       "dashboard": ["GET /dashboard/stats", "GET /stats/overview"],
       "companies": [
@@ -560,6 +789,12 @@
         "POST /products/global"
       ],
       "materials": [
+        "GET /materials/pending",
+        "PATCH /materials/approve (NEW)",
+        "PATCH /materials/reject (NEW)",
+        "PATCH /materials/:id/approve",
+        "PATCH /materials/:id/reject",
+        "DELETE /materials (NEW)",
         "DELETE /materials/:materialId (NEW)"
       ]
     }
@@ -586,10 +821,34 @@
       "endpoint": "GET /api/platform/products/:id",
       "returns": "Full product details with approval history"
     },
+    "materialApprovalBulkSelection": {
+      "description": "Platform owner needs to approve or reject many selected pending materials from the material approval menu",
+      "listEndpoint": "GET /api/platform/materials/pending",
+      "approveEndpoint": "PATCH /api/platform/materials/approve",
+      "rejectEndpoint": "PATCH /api/platform/materials/reject",
+      "approveBody": {
+        "materialIds": ["<materialId1>", "<materialId2>"],
+        "notes": "Optional approval note"
+      },
+      "rejectBody": {
+        "materialIds": ["<materialId1>", "<materialId2>"],
+        "reason": "Required rejection reason"
+      },
+      "returns": "Approval or rejection counts, invalid IDs, not-found IDs, skipped materials, and updated material records"
+    },
     "deleteMaterial": {
       "description": "Platform owner needs to remove a global or company material from the system",
       "endpoint": "DELETE /api/platform/materials/:materialId",
       "returns": "Deleted material metadata"
+    },
+    "bulkDeleteMaterials": {
+      "description": "Platform owner needs to remove many selected global or company materials in one request",
+      "endpoint": "DELETE /api/platform/materials",
+      "body": {
+        "confirm": true,
+        "materialIds": ["<materialId1>", "<materialId2>"]
+      },
+      "returns": "Deletion counts, invalid IDs, not-found IDs, and deleted material metadata"
     }
   },
 
@@ -602,7 +861,11 @@
     "step5": "GET /api/platform/products/all - See all products",
     "step6": "GET /api/platform/products/pending - Review approvals",
     "step7": "PATCH /api/platform/products/:id/approve - Approve products",
-    "step8": "DELETE /api/platform/materials/:materialId - Delete a material"
+    "step8": "GET /api/platform/materials/pending - Review material approvals",
+    "step9": "PATCH /api/platform/materials/approve - Bulk approve selected pending materials",
+    "step10": "PATCH /api/platform/materials/reject - Bulk reject selected pending materials",
+    "step11": "DELETE /api/platform/materials/:materialId - Delete a material",
+    "step12": "DELETE /api/platform/materials - Bulk delete selected materials"
   },
 
   

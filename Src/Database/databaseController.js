@@ -117,12 +117,20 @@ const isMaterialPriced = (material) => {
   return (unitPrice !== null && unitPrice > 0) || (sqmPrice !== null && sqmPrice > 0);
 };
 
+const normalizeBillingMode = (mode, pricingUnit = '') => {
+  const normalized = String(mode || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['area_prorated', 'full_sheet', 'unit'].includes(normalized)) return normalized;
+  return normalizePricingUnit(pricingUnit) === 'sqm' ? 'area_prorated' : 'unit';
+};
+
 const materialToDatabaseApi = (material) => {
   const obj = material?.toObject ? material.toObject() : material;
   const unitPrice = getMaterialUnitPrice(obj || {});
+  const pricingUnit = obj?.pricingUnit || obj?.unit || '';
 
   return {
     ...(obj || {}),
+    billingMode: normalizeBillingMode(obj?.billingMode, pricingUnit),
     unitPrice,
     isPriced: isMaterialPriced(obj || {})
   };
@@ -145,6 +153,7 @@ const materialToDatabaseVariant = (material) => {
     thickness: obj.thickness ?? null,
     thicknessUnit: obj.thicknessUnit || 'inches',
     pricingUnit: obj.pricingUnit || 'piece',
+    billingMode: normalizeBillingMode(obj.billingMode, obj.pricingUnit || obj.unit),
     unitPrice,
     pricePerUnit: obj.pricePerUnit ?? null,
     pricePerSqm: obj.pricePerSqm ?? null,
@@ -1264,6 +1273,9 @@ exports.updateMaterialTypePricing = async (req, res) => {
     if (hasPricePerUnit) update.pricePerUnit = body.pricePerUnit;
     if (hasPricePerSqm) update.pricePerSqm = body.pricePerSqm;
     if (pricingUnit !== undefined) update.pricingUnit = normalizePricingUnit(pricingUnit);
+    if (body.billingMode !== undefined) {
+      update.billingMode = normalizeBillingMode(body.billingMode, update.pricingUnit || pricingUnit);
+    }
     if (body.standardWidth !== undefined) update.standardWidth = body.standardWidth;
     if (body.standardLength !== undefined) update.standardLength = body.standardLength;
     if (body.standardUnit !== undefined) update.standardUnit = normalizeDimensionUnit(body.standardUnit);
@@ -1346,6 +1358,9 @@ exports.updateMaterial = async (req, res) => {
     if (body.pricePerSqm !== undefined) update.pricePerSqm = body.pricePerSqm;
     if (body.pricePerUnit !== undefined) update.pricePerUnit = body.pricePerUnit;
     if (body.pricingUnit !== undefined) update.pricingUnit = normalizePricingUnit(body.pricingUnit);
+    if (body.billingMode !== undefined) {
+      update.billingMode = normalizeBillingMode(body.billingMode, update.pricingUnit || material.pricingUnit);
+    }
     if (body.wasteThreshold !== undefined) update.wasteThreshold = body.wasteThreshold;
     if (body.unit !== undefined) update.unit = body.unit;
     if (body.notes !== undefined) update.notes = body.notes;

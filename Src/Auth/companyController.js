@@ -98,16 +98,47 @@ exports.getMyCompanies = async (req, res) => {
       accessGranted: true,
     }).populate('company');
 
-    const companies = userCompanies.map(uc => ({
-      id: uc.company._id,
-      name: uc.company.name,
-      email: uc.company.email,
-      phoneNumber: uc.company.phoneNumber,
-      role: uc.role,
-      position: uc.position,
-      isOwner: uc.role === 'owner',
-      joinedAt: uc.joinedAt,
-    }));
+    const companiesByName = new Map();
+    const addCompany = (company) => {
+      const key = String(company.name || '').trim().toLowerCase();
+      if (!key || companiesByName.has(key)) return;
+      companiesByName.set(key, company);
+    };
+
+    userCompanies.forEach((uc) => {
+      if (!uc.company) return;
+      addCompany({
+        id: uc.company._id,
+        name: uc.company.name,
+        email: uc.company.email,
+        phoneNumber: uc.company.phoneNumber,
+        address: uc.company.address,
+        role: uc.role,
+        position: uc.position,
+        isOwner: uc.role === 'owner',
+        joinedAt: uc.joinedAt,
+        source: 'user_company_link',
+      });
+    });
+
+    const user = await User.findById(req.user._id).select('companies');
+    (user?.companies || []).forEach((embeddedCompany, index) => {
+      if (embeddedCompany.accessGranted === false) return;
+      addCompany({
+        id: embeddedCompany._id || `embedded:${index}`,
+        name: embeddedCompany.name,
+        email: embeddedCompany.email,
+        phoneNumber: embeddedCompany.phoneNumber,
+        address: embeddedCompany.address,
+        role: embeddedCompany.role,
+        position: embeddedCompany.position,
+        isOwner: embeddedCompany.role === 'owner',
+        joinedAt: embeddedCompany.joinedAt,
+        source: 'user_embedded_company',
+      });
+    });
+
+    const companies = Array.from(companiesByName.values());
 
     return ApiResponse.success(res, 'Companies fetched successfully', companies);
   } catch (error) {
@@ -170,6 +201,32 @@ exports.inviteStaff = async (req, res) => {
       accessGranted: true,
       invitedBy: req.user._id,
     });
+
+    // Keep embedded `User.companies[]` in sync for signin and active-company middleware.
+    const alreadyInEmbeddedCompanies = (staffUser.companies || []).some(
+      (embeddedCompany) => String(embeddedCompany.name || '').trim().toLowerCase() === String(company.name || '').trim().toLowerCase()
+    );
+
+    if (!alreadyInEmbeddedCompanies) {
+      staffUser.companies.push({
+        name: company.name,
+        email: company.email,
+        phoneNumber: company.phoneNumber,
+        address: company.address,
+        role,
+        position,
+        invitedBy: req.user._id,
+        accessGranted: true,
+        joinedAt: new Date(),
+        permissions: role === 'staff' ? {} : { ...ALL_PERMISSIONS },
+      });
+
+      if (staffUser.companies.length === 1) {
+        staffUser.activeCompanyIndex = 0;
+      }
+
+      await staffUser.save();
+    }
 
     // ✅ Notify the invited staff
     await notifyUser({

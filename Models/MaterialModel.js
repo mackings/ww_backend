@@ -195,6 +195,11 @@ const materialSchema = new mongoose.Schema({
     enum: ['sqm', 'piece', 'pound', 'bag', 'liter', 'gallon', 'kilogram', 'meter', 'yard', 'pair', 'pack', 'roll', 'set', 'bucket'],
     default: 'sqm'
   },
+  billingMode: {
+    type: String,
+    enum: ['area_prorated', 'full_sheet', 'unit'],
+    default: 'area_prorated'
+  },
 
   // Material Types/Variants
   types: [materialTypeSchema], // e.g., Wood types: Iroko, Mahogany, etc.

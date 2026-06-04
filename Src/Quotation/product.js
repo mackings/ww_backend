@@ -70,6 +70,12 @@ const normalizePricingUnit = (unit = '') => {
   return 'piece';
 };
 
+const normalizeBillingMode = (mode, pricingUnit = '') => {
+  const normalized = String(mode || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['area_prorated', 'full_sheet', 'unit'].includes(normalized)) return normalized;
+  return normalizePricingUnit(pricingUnit) === 'sqm' ? 'area_prorated' : 'unit';
+};
+
 const normalizeGroupingKey = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const resolveExistingMaterialGrouping = async ({ category, subCategory, companyName, isGlobalMaterial }) => {
@@ -173,8 +179,10 @@ const isMaterialPriced = (material) => {
 const materialToApi = (material) => {
   const obj = material?.toObject ? material.toObject() : material;
   const unitPrice = getUnitPrice(obj || {});
+  const pricingUnit = obj?.pricingUnit || obj?.unit || '';
   return {
     ...(obj || {}),
+    billingMode: normalizeBillingMode(obj?.billingMode, pricingUnit),
     unitPrice,
     isPriced: isMaterialPriced(obj || {}),
     dimensionRule: buildMaterialDimensionRule(obj || {})
@@ -1344,6 +1352,7 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
       pricePerSqm,
       pricePerUnit,
       pricingUnit,
+      billingMode,
       types,
       sizeVariants,
       foamVariants,
@@ -1478,6 +1487,7 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
     const catalogPrice = selectedCatalogMaterial ? selectedCatalogMaterial.priceNumeric : null;
     const finalPricePerUnit = parseNumber(pricePerUnit) ?? catalogPrice;
     const finalPricingUnit = normalizePricingUnit(pricingUnit || selectedCatalogMaterial?.pricingUnit || finalUnit);
+    const finalBillingMode = normalizeBillingMode(billingMode, finalPricingUnit);
     const finalStandardWidth = parseNumber(standardWidth) ?? selectedCatalogMaterial?.standardWidth ?? undefined;
     const finalStandardLength = parseNumber(standardLength) ?? selectedCatalogMaterial?.standardLength ?? undefined;
     const finalStandardUnit = normalizeDimensionUnit(standardUnit || selectedCatalogMaterial?.standardUnit || 'inches') || 'inches';
@@ -1525,6 +1535,7 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
       pricePerSqm: finalPricePerSqm,
       pricePerUnit: finalPricePerUnit,
       pricingUnit: finalPricingUnit,
+      billingMode: finalBillingMode,
       types: parsedTypes,
       sizeVariants: parsedSizeVariants,
       foamVariants: parsedFoamVariants,
@@ -1679,7 +1690,8 @@ exports.calculateMaterialCost = async (req, res) => {
             name: material.name,
             category: material.category,
             subCategory: material.subCategory || '',
-            unit: material.unit || material.pricingUnit || 'piece'
+            unit: material.unit || material.pricingUnit || 'piece',
+            billingMode: 'unit'
           },
           calculation: {
             mode: 'unit_based',
@@ -1765,6 +1777,7 @@ exports.calculateMaterialCost = async (req, res) => {
 
     const stockDimensions = getStockDimensionsForPricing(material, stockOverrides);
     const effectiveUnitPrice = variantUnitPrice ?? baseUnitPrice;
+    const billingMode = normalizeBillingMode(material.billingMode, material.pricingUnit);
 
     // Excel-aligned model:
     // pricePerSqm = unitPrice / stockAreaSqm (when unit price exists and stock dimensions are known)
@@ -1786,7 +1799,8 @@ exports.calculateMaterialCost = async (req, res) => {
             name: material.name,
             category: material.category,
             subCategory: material.subCategory || '',
-            unit: material.unit || material.pricingUnit || 'piece'
+            unit: material.unit || material.pricingUnit || 'piece',
+            billingMode: 'unit'
           },
           calculation: {
             mode: 'unit_based_fallback',
@@ -1808,11 +1822,37 @@ exports.calculateMaterialCost = async (req, res) => {
       stockDimensions.unit
     );
 
+    if (standardAreaSqm <= 0) {
+      const safeUnitPrice = effectiveUnitPrice ?? 0;
+      const totalMaterialCost = quantityNumber * safeUnitPrice;
+      return res.status(200).json({
+        success: true,
+        data: {
+          material: {
+            id: material._id,
+            name: material.name,
+            category: material.category,
+            subCategory: material.subCategory || '',
+            unit: material.unit || material.pricingUnit || 'piece',
+            billingMode: 'unit'
+          },
+          calculation: {
+            mode: 'unit_based_fallback',
+            quantity: quantityNumber,
+            needsPricing: effectiveUnitPrice === null
+          },
+          pricing: {
+            pricePerUnit: safeUnitPrice.toFixed(2),
+            totalMaterialCost: totalMaterialCost.toFixed(2)
+          }
+        }
+      });
+    }
+
     // Calculate minimum stock units needed to cover the requested area.
     // This mirrors the material database model: job area divided by stock area.
     const rawRemainder = projectAreaSqm % standardAreaSqm;
     const wasteThresholdArea = standardAreaSqm * material.wasteThreshold;
-    const extraUnitAdded = rawRemainder > 0;
     let minimumUnits = Math.ceil(projectAreaSqm / standardAreaSqm);
     if (minimumUnits < 1) minimumUnits = 1;
 
@@ -1822,13 +1862,21 @@ exports.calculateMaterialCost = async (req, res) => {
     const pricePerFullUnit = effectiveUnitPrice !== null && effectiveUnitPrice > 0
       ? Math.min(computedPricePerFullUnit, effectiveUnitPrice)
       : computedPricePerFullUnit;
-    const billableUnits = minimumUnits * quantityNumber;
-    const totalMaterialCost = billableUnits * pricePerFullUnit;
+    const projectCost = billingMode === 'area_prorated'
+      ? projectAreaSqm * pricePerSqm
+      : minimumUnits * pricePerFullUnit;
+    const billableUnits = billingMode === 'area_prorated'
+      ? (projectAreaSqm / standardAreaSqm) * quantityNumber
+      : minimumUnits * quantityNumber;
+    const totalMaterialCost = projectCost * quantityNumber;
 
     // Calculate waste
-    const totalAreaUsed = minimumUnits * standardAreaSqm;
+    const totalAreaUsed = billingMode === 'area_prorated'
+      ? projectAreaSqm
+      : minimumUnits * standardAreaSqm;
     const wasteArea = totalAreaUsed - projectAreaSqm;
-    const wastePercentage = (wasteArea / totalAreaUsed) * 100;
+    const wastePercentage = totalAreaUsed > 0 ? (wasteArea / totalAreaUsed) * 100 : 0;
+    const extraUnitAdded = billingMode === 'full_sheet' && rawRemainder > 0;
 
     return res.status(200).json({
       success: true,
@@ -1838,7 +1886,8 @@ exports.calculateMaterialCost = async (req, res) => {
           name: material.name,
           category: material.category,
           type: materialType || null,
-          variant: sizeVariant || null
+          variant: sizeVariant || null,
+          billingMode
         },
         project: {
           requiredWidth: parsedRequiredWidth,
@@ -1852,13 +1901,17 @@ exports.calculateMaterialCost = async (req, res) => {
           standardUnit: stockDimensions.unit,
           standardAreaSqm: standardAreaSqm.toFixed(4)
         },
+        dimensions: {
+          projectAreaSqm: projectAreaSqm.toFixed(4),
+          standardAreaSqm: standardAreaSqm.toFixed(4)
+        },
         calculation: {
-          mode: 'area_based',
-          minimumUnits,
+          mode: billingMode,
+          minimumUnits: billingMode === 'area_prorated' ? 0 : minimumUnits,
           quantity: quantityNumber,
           billableUnits,
           wasteThreshold: material.wasteThreshold,
-          rawRemainder: rawRemainder.toFixed(4),
+          rawRemainder: billingMode === 'area_prorated' ? '0.0000' : rawRemainder.toFixed(4),
           wasteThresholdArea: wasteThresholdArea.toFixed(4),
           extraUnitAdded
         },
@@ -1866,6 +1919,7 @@ exports.calculateMaterialCost = async (req, res) => {
           pricePerSqm: pricePerSqm.toFixed(2),
           computedPricePerFullUnit: computedPricePerFullUnit.toFixed(2),
           pricePerFullUnit: pricePerFullUnit.toFixed(2),
+          projectCost: projectCost.toFixed(2),
           totalMaterialCost: totalMaterialCost.toFixed(2)
         },
         waste: {
@@ -1913,6 +1967,9 @@ exports.updateMaterial = async (req, res) => {
 
     // Update material
     if (updateData.pricingUnit !== undefined) updateData.pricingUnit = normalizePricingUnit(updateData.pricingUnit);
+    if (updateData.billingMode !== undefined) {
+      updateData.billingMode = normalizeBillingMode(updateData.billingMode, updateData.pricingUnit || material.pricingUnit);
+    }
     if (updateData.standardUnit !== undefined) updateData.standardUnit = normalizeDimensionUnit(updateData.standardUnit);
     if (updateData.thicknessUnit !== undefined) updateData.thicknessUnit = normalizeDimensionUnit(updateData.thicknessUnit);
     Object.assign(material, updateData);

@@ -4,6 +4,7 @@ const Company = require('../../Models/companyModel');
 const Order = require('../../Models/orderModel');
 const Quotation = require('../../Models/quotationModel');
 const Material = require('../../Models/MaterialModel');
+const mongoose = require('mongoose');
 const { sendEmail } = require('../../Utils/emailUtil');
 const { notifyUser, notifyCompany, notifyAllCompanyOwners } = require('../../Utils/NotHelper');
 const { getCatalogMaterials, normalizePricingUnit } = require('../../Utils/materialCatalog');
@@ -19,15 +20,158 @@ const getMaterialUnitPrice = (material) => (
   parseNumber(material.pricePerUnit) ?? parseNumber(material.catalogPrice) ?? null
 );
 
+const normalizeBillingMode = (mode, pricingUnit = '') => {
+  const normalized = String(mode || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['area_prorated', 'full_sheet', 'unit'].includes(normalized)) return normalized;
+  return normalizePricingUnit(pricingUnit) === 'sqm' ? 'area_prorated' : 'unit';
+};
+
 const materialToApi = (material) => {
   const obj = material?.toObject ? material.toObject() : material;
   const unitPrice = getMaterialUnitPrice(obj || {});
   const pricePerSqm = parseNumber(obj?.pricePerSqm);
+  const pricingUnit = obj?.pricingUnit || obj?.unit || '';
 
   return {
     ...(obj || {}),
+    billingMode: normalizeBillingMode(obj?.billingMode, pricingUnit),
     unitPrice,
     isPriced: (unitPrice !== null && unitPrice > 0) || (pricePerSqm !== null && pricePerSqm > 0)
+  };
+};
+
+const parsePagination = (query = {}, options = {}) => {
+  const {
+    pageKey = 'page',
+    limitKey = 'limit',
+    defaultLimit = 20,
+    maxLimit = 50
+  } = options;
+
+  const page = Math.max(parseInt(query[pageKey], 10) || 1, 1);
+  const rawLimit = parseInt(query[limitKey], 10) || defaultLimit;
+  const limit = Math.min(Math.max(rawLimit, 1), maxLimit);
+  const skip = (page - 1) * limit;
+
+  return { page, limit, skip };
+};
+
+const paginationMeta = (page, limit, total) => ({
+  page,
+  limit,
+  total,
+  pages: Math.ceil(total / limit) || 0,
+  hasNextPage: page * limit < total,
+  hasPrevPage: page > 1
+});
+
+const paginateArray = (items, page, limit) => items.slice((page - 1) * limit, page * limit);
+
+const parseBulkMaterialIds = (body = {}) => {
+  const rawIds = body.materialIds || body.ids;
+  if (!Array.isArray(rawIds)) {
+    return {
+      error: 'materialIds must be an array of MongoDB ObjectIds',
+      materialIds: [],
+      invalidIds: []
+    };
+  }
+
+  const materialIds = [];
+  const invalidIds = [];
+  const seen = new Set();
+
+  rawIds.forEach((rawId) => {
+    const materialId = String(rawId || '').trim();
+    if (!materialId || !mongoose.Types.ObjectId.isValid(materialId)) {
+      invalidIds.push(rawId);
+      return;
+    }
+
+    if (!seen.has(materialId)) {
+      seen.add(materialId);
+      materialIds.push(materialId);
+    }
+  });
+
+  return { materialIds, invalidIds };
+};
+
+const getEmbeddedCompanyNameFromId = (companyId) => {
+  const id = String(companyId || '');
+  if (!id.startsWith('embedded:')) return null;
+
+  try {
+    return decodeURIComponent(id.slice('embedded:'.length)).trim();
+  } catch (error) {
+    return '';
+  }
+};
+
+const getEmbeddedCompanyByName = async (companyName) => {
+  if (!companyName) return null;
+
+  const users = await User.find({
+    'companies.name': companyName
+  }).select('fullname email phoneNumber companies createdAt');
+
+  if (!users.length) return null;
+
+  const memberships = [];
+  users.forEach((user) => {
+    (user.companies || []).forEach((embeddedCompany) => {
+      if (embeddedCompany.name !== companyName) return;
+      memberships.push({ user, embeddedCompany });
+    });
+  });
+
+  if (!memberships.length) return null;
+
+  const ownerMembership = memberships.find(({ embeddedCompany }) => embeddedCompany.role === 'owner') || memberships[0];
+  const { user, embeddedCompany } = ownerMembership;
+  const activeMemberships = memberships.filter(({ embeddedCompany: company }) => company.accessGranted !== false);
+
+  return {
+    _id: `embedded:${encodeURIComponent(companyName)}`,
+    name: companyName,
+    email: embeddedCompany.email || user.email,
+    phoneNumber: embeddedCompany.phoneNumber || user.phoneNumber,
+    address: embeddedCompany.address || '',
+    owner: embeddedCompany.role === 'owner'
+      ? {
+          _id: user._id,
+          fullname: user.fullname,
+          email: user.email,
+          phoneNumber: user.phoneNumber
+        }
+      : null,
+    isActive: activeMemberships.length > 0,
+    createdAt: embeddedCompany.joinedAt || user.createdAt,
+    updatedAt: embeddedCompany.joinedAt || user.createdAt,
+    source: 'user_embedded_company',
+    isRegisteredDocument: false
+  };
+};
+
+const resolvePlatformCompany = async (companyId) => {
+  const embeddedCompanyName = getEmbeddedCompanyNameFromId(companyId);
+  if (embeddedCompanyName !== null) {
+    return getEmbeddedCompanyByName(embeddedCompanyName);
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(companyId)) {
+    return null;
+  }
+
+  const company = await Company.findById(companyId)
+    .populate('owner', 'fullname email phoneNumber');
+
+  if (!company) return null;
+
+  return {
+    ...company.toObject(),
+    source: 'company_collection',
+    isRegisteredDocument: true
   };
 };
 
@@ -38,6 +182,12 @@ const materialToApi = (material) => {
  */
 exports.getDashboardStats = async (req, res) => {
   try {
+    const recentLimit = parsePagination(req.query, {
+      limitKey: 'recentLimit',
+      defaultLimit: 5,
+      maxLimit: 20
+    }).limit;
+
     const [
       totalCompanies,
       activeCompanies,
@@ -62,12 +212,14 @@ exports.getDashboardStats = async (req, res) => {
     const recentProducts = await Product.find({ status: 'pending' })
       .populate('submittedBy', 'fullname email')
       .sort({ createdAt: -1 })
-      .limit(5);
+      .limit(recentLimit)
+      .lean();
 
     const recentCompanies = await Company.find()
       .populate('owner', 'fullname email')
       .sort({ createdAt: -1 })
-      .limit(5);
+      .limit(recentLimit)
+      .lean();
 
     res.status(200).json({
       success: true,
@@ -110,19 +262,22 @@ exports.getDashboardStats = async (req, res) => {
  */
 exports.getAllCompanies = async (req, res) => {
   try {
-    const { page = 1, limit = 20, search, isActive } = req.query;
-    const safePage = Math.max(parseInt(page, 10) || 1, 1);
-    const safeLimit = Math.max(parseInt(limit, 10) || 20, 1);
+    const { search, isActive } = req.query;
+    const { page: safePage, limit: safeLimit } = parsePagination(req.query, {
+      defaultLimit: 20,
+      maxLimit: 50
+    });
     const normalizeCompanyName = (value) => String(value || '').trim().toLowerCase();
     const companiesByName = new Map();
 
     const companyDocs = await Company.find({})
       .populate('owner', 'fullname email phoneNumber')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     companyDocs.forEach((company) => {
       companiesByName.set(normalizeCompanyName(company.name), {
-        ...company.toObject(),
+        ...company,
         source: 'company_collection',
         isRegisteredDocument: true
       });
@@ -130,7 +285,7 @@ exports.getAllCompanies = async (req, res) => {
 
     const usersWithCompanies = await User.find({
       'companies.0': { $exists: true }
-    }).select('fullname email phoneNumber companies createdAt');
+    }).select('fullname email phoneNumber companies createdAt').lean();
 
     usersWithCompanies.forEach((user) => {
       (user.companies || []).forEach((embeddedCompany) => {
@@ -181,7 +336,7 @@ exports.getAllCompanies = async (req, res) => {
     companies.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
     const total = companies.length;
-    const paginatedCompanies = companies.slice((safePage - 1) * safeLimit, safePage * safeLimit);
+    const paginatedCompanies = paginateArray(companies, safePage, safeLimit);
 
     // Get stats for each company
     const companiesWithStats = await Promise.all(
@@ -194,7 +349,7 @@ exports.getAllCompanies = async (req, res) => {
         ]);
 
         return {
-          ...company.toObject(),
+          ...company,
           stats: {
             products: productCount,
             orders: orderCount,
@@ -208,12 +363,7 @@ exports.getAllCompanies = async (req, res) => {
     res.status(200).json({
       success: true,
       data: companiesWithStats,
-      pagination: {
-        page: safePage,
-        limit: safeLimit,
-        total,
-        pages: Math.ceil(total / safeLimit)
-      }
+      pagination: paginationMeta(safePage, safeLimit, total)
     });
   } catch (error) {
     console.error('Get companies error:', error);
@@ -232,9 +382,14 @@ exports.getAllCompanies = async (req, res) => {
 exports.getCompanyUsage = async (req, res) => {
   try {
     const { companyId } = req.params;
+    const { page: recentOrdersPage, limit: recentOrdersLimit, skip: recentOrdersSkip } = parsePagination(req.query, {
+      pageKey: 'recentOrdersPage',
+      limitKey: 'recentOrdersLimit',
+      defaultLimit: 10,
+      maxLimit: 50
+    });
 
-    const company = await Company.findById(companyId)
-      .populate('owner', 'fullname email phoneNumber');
+    const company = await resolvePlatformCompany(companyId);
 
     if (!company) {
       return res.status(404).json({
@@ -250,7 +405,8 @@ exports.getCompanyUsage = async (req, res) => {
       users,
       pendingProducts,
       approvedProducts,
-      rejectedProducts
+      rejectedProducts,
+      recentOrdersTotal
     ] = await Promise.all([
       Product.countDocuments({ companyName: company.name }),
       Order.countDocuments({ companyName: company.name }),
@@ -258,14 +414,17 @@ exports.getCompanyUsage = async (req, res) => {
       User.countDocuments({ 'companies.name': company.name }),
       Product.countDocuments({ companyName: company.name, status: 'pending' }),
       Product.countDocuments({ companyName: company.name, status: 'approved' }),
-      Product.countDocuments({ companyName: company.name, status: 'rejected' })
+      Product.countDocuments({ companyName: company.name, status: 'rejected' }),
+      Order.countDocuments({ companyName: company.name })
     ]);
 
     // Get recent orders
     const recentOrders = await Order.find({ companyName: company.name })
       .sort({ createdAt: -1 })
-      .limit(10)
-      .select('orderNumber totalAmount status paymentStatus createdAt');
+      .skip(recentOrdersSkip)
+      .limit(recentOrdersLimit)
+      .select('orderNumber totalAmount status paymentStatus createdAt')
+      .lean();
 
     // Calculate revenue (from completed orders)
     const revenueData = await Order.aggregate([
@@ -295,7 +454,8 @@ exports.getCompanyUsage = async (req, res) => {
           users: users,
           revenue: revenueData[0] || { totalRevenue: 0, totalPaid: 0 }
         },
-        recentOrders: recentOrders
+        recentOrders: recentOrders,
+        recentOrdersPagination: paginationMeta(recentOrdersPage, recentOrdersLimit, recentOrdersTotal)
       }
     });
   } catch (error) {
@@ -314,7 +474,11 @@ exports.getCompanyUsage = async (req, res) => {
  */
 exports.getPendingProducts = async (req, res) => {
   try {
-    const { page = 1, limit = 20, companyName, category } = req.query;
+    const { companyName, category } = req.query;
+    const { page, limit, skip } = parsePagination(req.query, {
+      defaultLimit: 20,
+      maxLimit: 50
+    });
 
     const query = {
       status: 'pending',
@@ -333,20 +497,16 @@ exports.getPendingProducts = async (req, res) => {
       .populate('submittedBy', 'fullname email')
       .populate('userId', 'fullname email')
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
     const total = await Product.countDocuments(query);
 
     res.status(200).json({
       success: true,
       data: products,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
-      }
+      pagination: paginationMeta(page, limit, total)
     });
   } catch (error) {
     console.error('Get pending products error:', error);
@@ -607,7 +767,11 @@ exports.createGlobalProduct = async (req, res) => {
  */
 exports.getAllProducts = async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, companyName, category, isGlobal, search } = req.query;
+    const { status, companyName, category, isGlobal, search } = req.query;
+    const { page, limit, skip } = parsePagination(req.query, {
+      defaultLimit: 20,
+      maxLimit: 50
+    });
 
     const query = {};
 
@@ -644,8 +808,9 @@ exports.getAllProducts = async (req, res) => {
       .populate('approvedBy', 'fullname email')
       .populate('userId', 'fullname email')
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
     const total = await Product.countDocuments(query);
 
@@ -673,12 +838,7 @@ exports.getAllProducts = async (req, res) => {
       success: true,
       data: products,
       stats: statusBreakdown,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
-      }
+      pagination: paginationMeta(page, limit, total)
     });
   } catch (error) {
     console.error('Get all products error:', error);
@@ -731,9 +891,26 @@ exports.getProductDetails = async (req, res) => {
 exports.getCompanyProfile = async (req, res) => {
   try {
     const { companyId } = req.params;
+    const { page: staffPage, limit: staffLimit } = parsePagination(req.query, {
+      pageKey: 'staffPage',
+      limitKey: 'staffLimit',
+      defaultLimit: 20,
+      maxLimit: 50
+    });
+    const { page: recentProductsPage, limit: recentProductsLimit, skip: recentProductsSkip } = parsePagination(req.query, {
+      pageKey: 'recentProductsPage',
+      limitKey: 'recentProductsLimit',
+      defaultLimit: 10,
+      maxLimit: 50
+    });
+    const { page: recentOrdersPage, limit: recentOrdersLimit, skip: recentOrdersSkip } = parsePagination(req.query, {
+      pageKey: 'recentOrdersPage',
+      limitKey: 'recentOrdersLimit',
+      defaultLimit: 10,
+      maxLimit: 50
+    });
 
-    const company = await Company.findById(companyId)
-      .populate('owner', 'fullname email phoneNumber');
+    const company = await resolvePlatformCompany(companyId);
 
     if (!company) {
       return res.status(404).json({
@@ -746,7 +923,7 @@ exports.getCompanyProfile = async (req, res) => {
     const staff = await User.find({
       'companies.name': company.name,
       'companies.accessGranted': true
-    }).select('fullname email phoneNumber companies');
+    }).select('fullname email phoneNumber companies').lean();
 
     // Extract company-specific info for each staff member
     const staffWithRoles = staff.map(user => {
@@ -770,13 +947,17 @@ exports.getCompanyProfile = async (req, res) => {
       pendingProducts,
       approvedProducts,
       rejectedProducts,
-      globalProducts
+      globalProducts,
+      recentProductsTotal,
+      recentOrdersTotal
     ] = await Promise.all([
       Product.countDocuments({ companyName: company.name }),
       Product.countDocuments({ companyName: company.name, status: 'pending' }),
       Product.countDocuments({ companyName: company.name, status: 'approved' }),
       Product.countDocuments({ companyName: company.name, status: 'rejected' }),
-      Product.countDocuments({ isGlobal: true })
+      Product.countDocuments({ isGlobal: true }),
+      Product.countDocuments({ companyName: company.name }),
+      Order.countDocuments({ companyName: company.name })
     ]);
 
     // Get orders breakdown
@@ -813,20 +994,26 @@ exports.getCompanyProfile = async (req, res) => {
     // Get recent products
     const recentProducts = await Product.find({ companyName: company.name })
       .sort({ createdAt: -1 })
-      .limit(10)
-      .select('name productId category status createdAt');
+      .skip(recentProductsSkip)
+      .limit(recentProductsLimit)
+      .select('name productId category status createdAt')
+      .lean();
 
     // Get recent orders
     const recentOrders = await Order.find({ companyName: company.name })
       .sort({ createdAt: -1 })
-      .limit(10)
-      .select('orderNumber totalAmount status paymentStatus createdAt');
+      .skip(recentOrdersSkip)
+      .limit(recentOrdersLimit)
+      .select('orderNumber totalAmount status paymentStatus createdAt')
+      .lean();
+
+    const paginatedStaff = paginateArray(staffWithRoles, staffPage, staffLimit);
 
     res.status(200).json({
       success: true,
       data: {
         company: company,
-        staff: staffWithRoles,
+        staff: paginatedStaff,
         statistics: {
           products: {
             total: totalProducts,
@@ -849,7 +1036,10 @@ exports.getCompanyProfile = async (req, res) => {
         recentActivity: {
           products: recentProducts,
           orders: recentOrders
-        }
+        },
+        staffPagination: paginationMeta(staffPage, staffLimit, staffWithRoles.length),
+        recentProductsPagination: paginationMeta(recentProductsPage, recentProductsLimit, recentProductsTotal),
+        recentOrdersPagination: paginationMeta(recentOrdersPage, recentOrdersLimit, recentOrdersTotal)
       }
     });
   } catch (error) {
@@ -868,6 +1058,12 @@ exports.getCompanyProfile = async (req, res) => {
  */
 exports.getPlatformOverview = async (req, res) => {
   try {
+    const topLimit = parsePagination(req.query, {
+      limitKey: 'topLimit',
+      defaultLimit: 10,
+      maxLimit: 50
+    }).limit;
+
     // Product stats by status
     const productStats = await Product.aggregate([
       {
@@ -899,7 +1095,7 @@ exports.getPlatformOverview = async (req, res) => {
         }
       },
       { $sort: { total: -1 } },
-      { $limit: 10 }
+      { $limit: topLimit }
     ]);
 
     // Order stats
@@ -924,7 +1120,7 @@ exports.getPlatformOverview = async (req, res) => {
         }
       },
       { $sort: { totalRevenue: -1 } },
-      { $limit: 10 }
+      { $limit: topLimit }
     ]);
 
     // User stats
@@ -976,7 +1172,11 @@ exports.getPlatformOverview = async (req, res) => {
  */
 exports.getPendingMaterials = async (req, res) => {
   try {
-    const { page = 1, limit = 20, companyName, category } = req.query;
+    const { companyName, category } = req.query;
+    const { page, limit, skip } = parsePagination(req.query, {
+      defaultLimit: 20,
+      maxLimit: 50
+    });
 
     const query = { status: 'pending', isGlobal: false };
 
@@ -991,20 +1191,16 @@ exports.getPendingMaterials = async (req, res) => {
     const materials = await Material.find(query)
       .populate('submittedBy', 'fullname email')
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
     const total = await Material.countDocuments(query);
 
     res.status(200).json({
       success: true,
       data: materials,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
-      }
+      pagination: paginationMeta(page, limit, total)
     });
   } catch (error) {
     console.error('Get pending materials error:', error);
@@ -1077,6 +1273,7 @@ exports.reseedMaterialsFromCatalog = async (req, res) => {
         standardLength: item.standardLength,
         standardUnit: item.standardUnit || 'inches',
         pricingUnit,
+        billingMode: isSqmPricing ? 'area_prorated' : 'unit',
         pricePerSqm: item.pricePerSqm ?? (isSqmPricing ? item.priceNumeric : null),
         pricePerUnit: isSqmPricing ? null : item.priceNumeric,
         isActive: true,
@@ -1133,11 +1330,12 @@ exports.updateMaterialPrice = async (req, res) => {
     const hasPricePerSqm = Object.prototype.hasOwnProperty.call(body, 'pricePerSqm');
     const hasCatalogPrice = Object.prototype.hasOwnProperty.call(body, 'catalogPrice');
     const hasPricingUnit = Object.prototype.hasOwnProperty.call(body, 'pricingUnit');
+    const hasBillingMode = Object.prototype.hasOwnProperty.call(body, 'billingMode');
 
-    if (!hasPricePerUnit && !hasPricePerSqm && !hasCatalogPrice && !hasPricingUnit) {
+    if (!hasPricePerUnit && !hasPricePerSqm && !hasCatalogPrice && !hasPricingUnit && !hasBillingMode) {
       return ApiResponse.error(
         res,
-        'Provide at least one of pricePerUnit, pricePerSqm, catalogPrice, or pricingUnit',
+        'Provide at least one of pricePerUnit, pricePerSqm, catalogPrice, pricingUnit, or billingMode',
         400
       );
     }
@@ -1165,6 +1363,9 @@ exports.updateMaterialPrice = async (req, res) => {
       material.isCatalogPriced = Number(catalogPrice) > 0;
     }
     if (hasPricingUnit) material.pricingUnit = normalizePricingUnit(body.pricingUnit);
+    if (hasBillingMode) {
+      material.billingMode = normalizeBillingMode(body.billingMode, material.pricingUnit);
+    }
 
     await material.save();
 
@@ -1184,11 +1385,12 @@ exports.updateMaterialPrice = async (req, res) => {
         pricePerUnit: material.pricePerUnit ?? null,
         pricePerSqm: material.pricePerSqm ?? null,
         catalogPrice: material.catalogPrice ?? null,
-        pricingUnit: material.pricingUnit ?? null
+        pricingUnit: material.pricingUnit ?? null,
+        billingMode: material.billingMode ?? null
       }
     });
 
-    return ApiResponse.success(res, 'Material price updated successfully', material);
+    return ApiResponse.success(res, 'Material price updated successfully', materialToApi(material));
   } catch (error) {
     console.error('Update material price error:', error);
     return ApiResponse.error(res, error.message || 'Error updating material price', 500);
@@ -1252,6 +1454,348 @@ exports.deleteMaterial = async (req, res) => {
   } catch (error) {
     console.error('Delete material error:', error);
     return ApiResponse.error(res, 'Error deleting material', 500);
+  }
+};
+
+/**
+ * @desc    Delete many materials by ID
+ * @route   DELETE /api/platform/materials
+ * @access  Platform Owner
+ */
+exports.deleteMaterialsBulk = async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { confirm } = body;
+
+    if (confirm !== true && confirm !== 'true') {
+      return ApiResponse.error(res, 'This action deletes multiple materials. Set confirm=true to proceed.', 400);
+    }
+
+    const { error, materialIds, invalidIds } = parseBulkMaterialIds(body);
+    if (error) {
+      return ApiResponse.error(res, error, 400);
+    }
+
+    if (!materialIds.length) {
+      return ApiResponse.error(res, 'Provide at least one valid materialId to delete', 400, { invalidIds });
+    }
+
+    const materials = await Material.find({ _id: { $in: materialIds } })
+      .select('_id name category companyName isGlobal status')
+      .lean();
+
+    const foundIdSet = new Set(materials.map((material) => material._id.toString()));
+    const notFoundIds = materialIds.filter((materialId) => !foundIdSet.has(materialId));
+
+    if (!materials.length) {
+      return ApiResponse.error(res, 'No matching materials found', 404, {
+        requestedCount: materialIds.length,
+        invalidIds,
+        notFoundIds
+      });
+    }
+
+    const deleteResult = await Material.deleteMany({ _id: { $in: materials.map((material) => material._id) } });
+
+    const actor = await User.findById(req.user._id).select('fullname');
+    const performerName = actor?.fullname || req.user?.fullname || 'Platform Owner';
+    const deletedMaterials = materials.map((material) => ({
+      _id: material._id,
+      name: material.name,
+      category: material.category,
+      companyName: material.companyName,
+      isGlobal: material.isGlobal,
+      status: material.status
+    }));
+
+    const globalMaterials = deletedMaterials.filter((material) => material.isGlobal);
+    const companyMaterials = deletedMaterials.filter((material) => !material.isGlobal);
+
+    if (globalMaterials.length) {
+      await notifyAllCompanyOwners({
+        type: 'material_deleted',
+        title: 'Materials Deleted',
+        message: `${performerName} deleted ${globalMaterials.length} global material(s)`,
+        performedBy: req.user._id,
+        performedByName: performerName,
+        metadata: {
+          count: globalMaterials.length,
+          materialIds: globalMaterials.map((material) => material._id),
+          scope: 'global'
+        }
+      });
+    }
+
+    const materialsByCompany = companyMaterials.reduce((groups, material) => {
+      const companyName = material.companyName || 'UNKNOWN';
+      if (!groups.has(companyName)) groups.set(companyName, []);
+      groups.get(companyName).push(material);
+      return groups;
+    }, new Map());
+
+    await Promise.all(Array.from(materialsByCompany.entries()).map(([companyName, companyGroup]) => notifyCompany({
+      companyName,
+      type: 'material_deleted',
+      title: 'Materials Deleted',
+      message: `${performerName} deleted ${companyGroup.length} material(s)`,
+      performedBy: req.user._id,
+      performedByName: performerName,
+      metadata: {
+        count: companyGroup.length,
+        materialIds: companyGroup.map((material) => material._id),
+        materialNames: companyGroup.map((material) => material.name)
+      },
+      excludeUserId: req.user._id
+    })));
+
+    return ApiResponse.success(res, 'Materials deleted successfully', {
+      requestedCount: materialIds.length,
+      deletedCount: deleteResult.deletedCount ?? deletedMaterials.length,
+      invalidIds,
+      notFoundIds,
+      deletedMaterials
+    });
+  } catch (error) {
+    console.error('Bulk delete materials error:', error);
+    return ApiResponse.error(res, 'Error deleting materials', 500);
+  }
+};
+
+/**
+ * @desc    Approve many pending materials by ID
+ * @route   PATCH /api/platform/materials/approve
+ * @access  Platform Owner
+ */
+exports.approveMaterialsBulk = async (req, res) => {
+  try {
+    const { notes } = req.body || {};
+    const { error, materialIds, invalidIds } = parseBulkMaterialIds(req.body || {});
+
+    if (error) {
+      return ApiResponse.error(res, error, 400);
+    }
+
+    if (!materialIds.length) {
+      return ApiResponse.error(res, 'Provide at least one valid materialId to approve', 400, { invalidIds });
+    }
+
+    const materials = await Material.find({ _id: { $in: materialIds } })
+      .populate('submittedBy', 'fullname email');
+
+    const foundIdSet = new Set(materials.map((material) => material._id.toString()));
+    const notFoundIds = materialIds.filter((materialId) => !foundIdSet.has(materialId));
+    const pendingMaterials = materials.filter((material) => material.status === 'pending');
+    const skippedMaterials = materials
+      .filter((material) => material.status !== 'pending')
+      .map((material) => ({
+        _id: material._id,
+        name: material.name,
+        status: material.status,
+        reason: 'Only pending materials can be approved'
+      }));
+
+    if (!pendingMaterials.length) {
+      return ApiResponse.error(res, 'No pending materials found to approve', 400, {
+        requestedCount: materialIds.length,
+        invalidIds,
+        notFoundIds,
+        skippedMaterials
+      });
+    }
+
+    const approvedAt = new Date();
+    const approvedMaterials = [];
+
+    for (const material of pendingMaterials) {
+      material.status = 'approved';
+      material.approvedBy = req.user._id;
+      material.approvedAt = approvedAt;
+      material.rejectionReason = null;
+      material.approvalHistory.push({
+        action: 'approved',
+        performedBy: req.user._id,
+        performedByName: req.user.fullname,
+        reason: notes || 'Approved by platform owner',
+        timestamp: approvedAt
+      });
+
+      await material.save();
+
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: #10b981; padding: 20px; text-align: center;">
+            <h1 style="color: white; margin: 0;">Material Approved</h1>
+          </div>
+          <div style="padding: 30px; background-color: #f9fafb;">
+            <p>Hi ${material.submittedBy.fullname},</p>
+            <p>Great news! Your material has been approved and is now available in your system.</p>
+            <div style="background-color: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="margin-top: 0; color: #1f2937;">Material Details:</h3>
+              <p><strong>Name:</strong> ${material.name}</p>
+              <p><strong>Category:</strong> ${material.category}</p>
+              <p><strong>Company:</strong> ${material.companyName}</p>
+            </div>
+            ${notes ? `<p><strong>Notes from platform owner:</strong><br>${notes}</p>` : ''}
+            <p>You can now use this material in your quotations and BOMs.</p>
+          </div>
+        </div>
+      `;
+
+      await sendEmail({
+        to: material.submittedBy.email,
+        subject: `Material Approved: ${material.name}`,
+        html: emailHtml
+      });
+
+      await notifyCompany({
+        companyName: material.companyName,
+        type: 'material_approved',
+        title: 'Material Approved',
+        message: `Your material "${material.name}" has been approved`,
+        performedBy: req.user._id,
+        performedByName: req.user.fullname,
+        metadata: {
+          materialId: material._id,
+          materialName: material.name
+        }
+      });
+
+      approvedMaterials.push(materialToApi(material));
+    }
+
+    return ApiResponse.success(res, 'Materials approved successfully', {
+      requestedCount: materialIds.length,
+      approvedCount: approvedMaterials.length,
+      invalidIds,
+      notFoundIds,
+      skippedMaterials,
+      approvedMaterials
+    });
+  } catch (error) {
+    console.error('Bulk approve materials error:', error);
+    return ApiResponse.error(res, 'Error approving materials', 500);
+  }
+};
+
+/**
+ * @desc    Reject many pending materials by ID
+ * @route   PATCH /api/platform/materials/reject
+ * @access  Platform Owner
+ */
+exports.rejectMaterialsBulk = async (req, res) => {
+  try {
+    const { reason } = req.body || {};
+
+    if (!reason) {
+      return ApiResponse.error(res, 'Rejection reason is required', 400);
+    }
+
+    const { error, materialIds, invalidIds } = parseBulkMaterialIds(req.body || {});
+
+    if (error) {
+      return ApiResponse.error(res, error, 400);
+    }
+
+    if (!materialIds.length) {
+      return ApiResponse.error(res, 'Provide at least one valid materialId to reject', 400, { invalidIds });
+    }
+
+    const materials = await Material.find({ _id: { $in: materialIds } })
+      .populate('submittedBy', 'fullname email');
+
+    const foundIdSet = new Set(materials.map((material) => material._id.toString()));
+    const notFoundIds = materialIds.filter((materialId) => !foundIdSet.has(materialId));
+    const pendingMaterials = materials.filter((material) => material.status === 'pending');
+    const skippedMaterials = materials
+      .filter((material) => material.status !== 'pending')
+      .map((material) => ({
+        _id: material._id,
+        name: material.name,
+        status: material.status,
+        reason: 'Only pending materials can be rejected'
+      }));
+
+    if (!pendingMaterials.length) {
+      return ApiResponse.error(res, 'No pending materials found to reject', 400, {
+        requestedCount: materialIds.length,
+        invalidIds,
+        notFoundIds,
+        skippedMaterials
+      });
+    }
+
+    const rejectedAt = new Date();
+    const rejectedMaterials = [];
+
+    for (const material of pendingMaterials) {
+      material.status = 'rejected';
+      material.rejectionReason = reason;
+      material.approvalHistory.push({
+        action: 'rejected',
+        performedBy: req.user._id,
+        performedByName: req.user.fullname,
+        reason,
+        timestamp: rejectedAt
+      });
+
+      await material.save();
+
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: #ef4444; padding: 20px; text-align: center;">
+            <h1 style="color: white; margin: 0;">Material Rejected</h1>
+          </div>
+          <div style="padding: 30px; background-color: #f9fafb;">
+            <p>Hi ${material.submittedBy.fullname},</p>
+            <p>Your material submission has been rejected.</p>
+            <div style="background-color: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="margin-top: 0; color: #1f2937;">Material Details:</h3>
+              <p><strong>Name:</strong> ${material.name}</p>
+              <p><strong>Category:</strong> ${material.category}</p>
+              <p><strong>Company:</strong> ${material.companyName}</p>
+            </div>
+            <div style="background-color: #fee2e2; padding: 15px; border-left: 4px solid #ef4444; margin: 20px 0;">
+              <p style="margin: 0;"><strong>Reason for rejection:</strong><br>${reason}</p>
+            </div>
+            <p>You can update and resubmit this material for approval.</p>
+          </div>
+        </div>
+      `;
+
+      await sendEmail({
+        to: material.submittedBy.email,
+        subject: `Material Rejected: ${material.name}`,
+        html: emailHtml
+      });
+
+      await notifyCompany({
+        companyName: material.companyName,
+        type: 'material_rejected',
+        title: 'Material Rejected',
+        message: `Your material "${material.name}" was rejected: ${reason}`,
+        performedBy: req.user._id,
+        performedByName: req.user.fullname,
+        metadata: {
+          materialId: material._id,
+          materialName: material.name,
+          reason
+        }
+      });
+
+      rejectedMaterials.push(materialToApi(material));
+    }
+
+    return ApiResponse.success(res, 'Materials rejected successfully', {
+      requestedCount: materialIds.length,
+      rejectedCount: rejectedMaterials.length,
+      invalidIds,
+      notFoundIds,
+      skippedMaterials,
+      rejectedMaterials
+    });
+  } catch (error) {
+    console.error('Bulk reject materials error:', error);
+    return ApiResponse.error(res, 'Error rejecting materials', 500);
   }
 };
 
