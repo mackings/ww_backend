@@ -8,7 +8,7 @@ const path = require('path');
  * @param {string} filePath - Destination path for the PDF (optional, auto-generated if not provided)
  * @returns {Promise<string>} - Resolves with file path after writing
  */
-async function generateInvoicePDF(invoice, filePath) {
+async function generateInvoicePDF(invoice, filePath, template = 'classic') {
   return new Promise((resolve, reject) => {
     try {
       // ✅ Use /tmp directory for serverless environments (Vercel, AWS Lambda, etc.)
@@ -35,7 +35,13 @@ async function generateInvoicePDF(invoice, filePath) {
 
       console.log('📄 Generating PDF at:', outputPath);
 
-      const doc = new PDFDocument({ margin: 40 });
+      const selectedTemplate = ['classic', 'modern', 'minimal'].includes(template) ? template : 'classic';
+      const palette = {
+        classic: { primary: '#333333', accent: '#A16438', panel: '#f5f8f2' },
+        modern: { primary: '#2f211a', accent: '#9a4d0f', panel: '#fff2e6' },
+        minimal: { primary: '#111111', accent: '#555555', panel: '#f7f7f7' }
+      }[selectedTemplate];
+      const doc = new PDFDocument({ margin: selectedTemplate === 'minimal' ? 52 : 40 });
       const stream = fs.createWriteStream(outputPath);
 
       doc.pipe(stream);
@@ -43,15 +49,26 @@ async function generateInvoicePDF(invoice, filePath) {
       // ---------------------------
       // HEADER
       // ---------------------------
-      doc
-        .fontSize(22)
-        .fillColor('#333333')
-        .text('INVOICE', { align: 'center' })
-        .moveDown();
+      if (selectedTemplate === 'modern') {
+        doc.rect(0, 0, doc.page.width, 96).fill(palette.primary);
+        doc
+          .fillColor('#ffffff')
+          .fontSize(26)
+          .text('INVOICE', 40, 34)
+          .fontSize(11)
+          .text(invoice.invoiceNumber || invoice.quotationNumber || '', 40, 66);
+        doc.y = 124;
+      } else {
+        doc
+          .fontSize(selectedTemplate === 'minimal' ? 18 : 22)
+          .fillColor(palette.primary)
+          .text('INVOICE', { align: selectedTemplate === 'minimal' ? 'left' : 'center' })
+          .moveDown();
+      }
 
       doc
         .fontSize(12)
-        .fillColor('#555555')
+        .fillColor(selectedTemplate === 'minimal' ? '#333333' : '#555555')
         .text(`Invoice Number: ${invoice.invoiceNumber || invoice.quotationNumber}`)
         .text(`Date: ${new Date().toDateString()}`)
         .text(`Due Date: ${new Date(invoice.dueDate).toDateString()}`)
@@ -62,7 +79,7 @@ async function generateInvoicePDF(invoice, filePath) {
       // ---------------------------
       doc
         .fontSize(13)
-        .fillColor('#000000')
+        .fillColor(palette.primary)
         .text('Bill To:', { underline: true })
         .moveDown(0.5);
 
@@ -81,7 +98,7 @@ async function generateInvoicePDF(invoice, filePath) {
       // ---------------------------
       doc
         .fontSize(13)
-        .fillColor('#000000')
+        .fillColor(palette.primary)
         .text('Items / Services', { underline: true })
         .moveDown(0.5);
 
@@ -119,6 +136,12 @@ async function generateInvoicePDF(invoice, filePath) {
       // ---------------------------
       // SUMMARY
       // ---------------------------
+      if (selectedTemplate !== 'minimal') {
+        const summaryTop = doc.y;
+        doc.roundedRect(40, summaryTop, doc.page.width - 80, 82, 10).fill(palette.panel);
+        doc.y = summaryTop + 14;
+      }
+
       doc
         .fontSize(12)
         .fillColor('#333333')
@@ -130,7 +153,7 @@ async function generateInvoicePDF(invoice, filePath) {
 
       doc
         .fontSize(14)
-        .fillColor('#000000')
+        .fillColor(palette.accent)
         .text(`Grand Total: ₦${(invoice.finalTotal || 0).toLocaleString()}`, { align: 'right' })
         .moveDown(1.5);
 

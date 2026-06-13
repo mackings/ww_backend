@@ -3,6 +3,8 @@ const BOM = require('../../Models/bomModel');
 const Product = require('../../Models/productModel');
 const Counter = require('../../Models/counterModel');
 const { notifyCompany } = require('../../Utils/NotHelper');
+const { calculateQuotationPricing } = require('../../Utils/quotationPricing');
+const { sendEmail } = require('../../Utils/emailUtil');
 const User = require("../../Models/user");
 
 // @desc    Create new quotation
@@ -67,6 +69,68 @@ const applyPricing = (bom, pricingInput = {}) => {
   bom.materialsCost = Number(materialsTotal.toFixed(2));
   bom.additionalCostsTotal = Number(additionalTotal.toFixed(2));
   bom.totalCost = Number((materialsTotal + additionalTotal).toFixed(2));
+};
+
+const currency = (value) => new Intl.NumberFormat('en-NG', {
+  style: 'currency',
+  currency: 'NGN',
+  maximumFractionDigits: 2
+}).format(Number(value) || 0);
+
+const escapeHtml = (value = '') => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#039;');
+
+const buildQuotationEmailHtml = ({ quotation, boms = [], companyName }) => {
+  const rows = (quotation.items || []).map(item => `
+    <tr>
+      <td style="padding:10px;border-bottom:1px solid #eee;">${escapeHtml(item.description || item.woodType || 'Item')}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:center;">${escapeHtml(item.quantity || 1)}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">${currency(item.sellingPrice)}</td>
+      <td style="padding:10px;border-bottom:1px solid #eee;text-align:right;">${currency((Number(item.sellingPrice) || 0) * (Number(item.quantity) || 1))}</td>
+    </tr>
+  `).join('');
+
+  const bomRows = boms.map(bom => `
+    <li style="margin:6px 0;">
+      <strong>${escapeHtml(bom.product?.name || bom.name || 'BOM')}</strong>
+      <span style="color:#777;"> - ${escapeHtml((bom.materials || []).length)} material(s)</span>
+    </li>
+  `).join('');
+
+  return `
+    <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;color:#2a211c;">
+      <div style="padding:24px;background:#fff7f0;border:1px solid #eaded4;border-radius:16px;">
+        <p style="margin:0 0 8px;color:#9a4d0f;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">${escapeHtml(companyName)}</p>
+        <h1 style="margin:0 0 12px;font-size:28px;">Quotation ${escapeHtml(quotation.quotationNumber)}</h1>
+        <p style="margin:0 0 18px;">Dear ${escapeHtml(quotation.clientName)},</p>
+        <p style="margin:0 0 20px;color:#655a52;line-height:1.6;">Your quotation has been prepared. Please find the summary below.</p>
+
+        <table style="width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;">
+          <thead>
+            <tr style="background:#34241c;color:#fff;">
+              <th style="padding:10px;text-align:left;">Item</th>
+              <th style="padding:10px;text-align:center;">Qty</th>
+              <th style="padding:10px;text-align:right;">Unit price</th>
+              <th style="padding:10px;text-align:right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+
+        ${bomRows ? `<h3 style="margin:22px 0 8px;">Products / BOMs</h3><ul style="margin:0 0 18px;padding-left:20px;">${bomRows}</ul>` : ''}
+
+        <div style="margin-top:22px;padding:18px;border-radius:14px;background:#34241c;color:#fff;">
+          <p style="display:flex;justify-content:space-between;margin:0 0 8px;"><span>Cost price</span><strong>${currency(quotation.costPrice)}</strong></p>
+          <p style="display:flex;justify-content:space-between;margin:0 0 8px;"><span>Discount</span><strong>${Number(quotation.discount || 0)}%</strong></p>
+          <p style="display:flex;justify-content:space-between;margin:14px 0 0;padding-top:14px;border-top:1px solid rgba(255,255,255,.18);font-size:20px;"><span>Total</span><strong>${currency(quotation.finalTotal)}</strong></p>
+        </div>
+      </div>
+    </div>
+  `;
 };
 
 const syncBomCounter = async () => {
@@ -161,10 +225,9 @@ const createBomForQuotation = async ({ bomInput, quotation, req }) => {
     throw new Error('Each BOM must include a name or valid product');
   }
 
-  const updatedMaterials = materials.map(mat => ({
-    ...mat,
-    name: productSnapshot?.name || mat.name
-  }));
+  // Product identity belongs to the BOM. Material names must remain the
+  // approved catalog names selected by the user.
+  const updatedMaterials = materials.map(mat => ({ ...mat }));
 
   if (updatedMaterials.some(mat => !mat.name)) {
     throw new Error('Each BOM material must include a name');
@@ -362,40 +425,24 @@ exports.createQuotation = async (req, res) => {
       }))
       : items;
 
-    // Calculate totals from items
-    let totalCost = 0;
-    let totalSellingPrice = 0;
-
-    sanitizedItems.forEach(item => {
-      const itemQuantity = item.quantity || 1;
-      totalCost += (item.costPrice || 0) * itemQuantity;
-      totalSellingPrice += (item.sellingPrice || 0) * itemQuantity;
-    });
-
     // Handle expected duration
     let durationData = null;
-    if (expectedDuration) {
+    if (expectedDuration && typeof expectedDuration === 'object') {
+      durationData = expectedDuration;
+    } else if (expectedDuration) {
       durationData = {
         value: expectedDuration,
         unit: expectedPeriod || 'Day'
       };
-    } else if (typeof expectedDuration === 'object') {
-      durationData = expectedDuration;
     }
 
-    // Use provided cost breakdown or calculate from items
-    const quotationCostPrice = costPrice || totalCost;
-    const quotationOverheadCost = overheadCost || 0;
-    const quotationSellingPrice = quotationCostPrice + quotationOverheadCost;
-
-    // Calculate discount amount
-    let discountAmount = 0;
-    if (discount && discount > 0) {
-      discountAmount = (quotationSellingPrice * discount) / 100;
-    }
-
-    // Final total
-    const finalTotal = service?.totalPrice || (quotationSellingPrice - discountAmount);
+    const quotationPricing = calculateQuotationPricing({
+      items: sanitizedItems,
+      costPrice,
+      overheadCost,
+      discount
+    });
+    const finalTotal = service?.totalPrice ?? quotationPricing.finalTotal;
 
     const quotation = await Quotation.create({
       userId: req.user.id,
@@ -410,26 +457,18 @@ exports.createQuotation = async (req, res) => {
       service,
       expectedDuration: durationData,
       dueDate: dueDate || null,
-      costPrice: quotationCostPrice,
-      overheadCost: quotationOverheadCost,
+      costPrice: quotationPricing.costPrice,
+      overheadCost: quotationPricing.overheadCost,
       discount: discount || 0,
-      totalCost,
-      totalSellingPrice: quotationSellingPrice,
-      discountAmount,
+      totalCost: quotationPricing.totalCost,
+      totalSellingPrice: quotationPricing.totalSellingPrice,
+      discountAmount: quotationPricing.discountAmount,
       finalTotal,
       status: 'sent'
     });
 
     let createdBoms = [];
     try {
-      const defaultBom = await createDefaultBomFromQuotation({
-        quotation,
-        req,
-        productId,
-        product
-      });
-      createdBoms.push(defaultBom);
-
       if (boms !== undefined) {
         if (!Array.isArray(boms) || boms.length === 0) {
           return res.status(400).json({
@@ -441,7 +480,15 @@ exports.createQuotation = async (req, res) => {
         const extraBoms = await Promise.all(
           boms.map(bomInput => createBomForQuotation({ bomInput, quotation, req }))
         );
-        createdBoms = createdBoms.concat(extraBoms);
+        createdBoms = extraBoms;
+      } else {
+        const defaultBom = await createDefaultBomFromQuotation({
+          quotation,
+          req,
+          productId,
+          product
+        });
+        createdBoms.push(defaultBom);
       }
     } catch (bomError) {
       await BOM.deleteMany({ quotationId: quotation._id, companyName: req.companyName });
@@ -472,12 +519,35 @@ exports.createQuotation = async (req, res) => {
       excludeUserId: req.user.id
     });
 
+    let clientEmailStatus = {
+      attempted: false,
+      sent: false,
+      to: email || null
+    };
+
+    if (email) {
+      clientEmailStatus.attempted = true;
+      const emailInfo = await sendEmail({
+        to: email,
+        subject: `Quotation ${quotation.quotationNumber} from ${req.companyName}`,
+        html: buildQuotationEmailHtml({
+          quotation,
+          boms: createdBoms,
+          companyName: req.companyName
+        })
+      });
+      clientEmailStatus.sent = Boolean(emailInfo);
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Quotation created successfully',
+      message: clientEmailStatus.sent || !email
+        ? 'Quotation created successfully'
+        : 'Quotation created successfully, but email could not be sent',
       data: {
         ...quotation.toObject(),
-        boms: createdBoms
+        boms: createdBoms,
+        clientEmailStatus
       }
     });
   } catch (error) {

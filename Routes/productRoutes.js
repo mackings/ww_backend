@@ -17,6 +17,7 @@ router.get('/materials/grouped', productController.getMaterialsGrouped);
 router.get('/materials/supported', productController.getSupportedMaterials);
 router.get('/materials/supported/summary', productController.getSupportedMaterialsSummary);
 router.post('/creatematerial', upload.single("image"), productController.createMaterial);
+router.put('/materials/:materialId', upload.single("image"), productController.updateMaterial);
 router.post('/:materialId/add-types', productController.addMaterialTypes)
 router.post('/material/:materialId/calculate-cost', productController.calculateMaterialCost)
 

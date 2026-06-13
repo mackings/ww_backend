@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const platformController = require('../Src/Platform/platformController');
+const productController = require('../Src/Quotation/product');
 const multer = require("multer");
 const upload = multer();
 const { protect, requirePlatformOwner } = require('../Utils/auth');
@@ -34,6 +35,7 @@ router.post('/materials/reseed-from-catalog', platformController.reseedMaterials
 router.delete('/materials', platformController.deleteMaterialsBulk);
 router.patch('/materials/approve', platformController.approveMaterialsBulk);
 router.patch('/materials/reject', platformController.rejectMaterialsBulk);
+router.put('/materials/:materialId', upload.single("image"), productController.updateMaterial);
 router.delete('/materials/:materialId', platformController.deleteMaterial);
 router.patch('/materials/:materialId/price', platformController.updateMaterialPrice);
 router.patch('/materials/:materialId/approve', platformController.approveMaterial);

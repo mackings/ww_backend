@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Counter = require('./counterModel');
 
 const invoiceItemSchema = new mongoose.Schema({
   woodType: {
@@ -119,6 +120,24 @@ const invoiceSchema = new mongoose.Schema({
   paidDate: {
     type: Date
   },
+  assignedTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  assignedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  assignedAt: {
+    type: Date,
+    default: null
+  },
+  assignmentNotes: {
+    type: String,
+    default: null
+  },
   notes: String,
   createdAt: {
     type: Date,
@@ -135,8 +154,12 @@ const invoiceSchema = new mongoose.Schema({
 // Generate invoice number before saving
 invoiceSchema.pre('save', async function(next) {
   if (!this.invoiceNumber) {
-    const count = await this.constructor.countDocuments();
-    this.invoiceNumber = `INV-${(count + 1).toString().padStart(5, '0')}`;
+    const counter = await Counter.findOneAndUpdate(
+      { key: 'invoiceNumber' },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+    this.invoiceNumber = `INV-${counter.seq.toString().padStart(5, '0')}`;
   }
   
   // Calculate balance
@@ -164,5 +187,6 @@ invoiceSchema.index({ invoiceNumber: 1 });
 invoiceSchema.index({ quotationId: 1 });
 invoiceSchema.index({ status: 1 });
 invoiceSchema.index({ paymentStatus: 1 });
+invoiceSchema.index({ assignedTo: 1 });
 
 module.exports = mongoose.models.Invoice || mongoose.model('Invoice', invoiceSchema);

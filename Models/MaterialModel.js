@@ -195,6 +195,11 @@ const materialSchema = new mongoose.Schema({
     enum: ['sqm', 'piece', 'pound', 'bag', 'liter', 'gallon', 'kilogram', 'meter', 'yard', 'pair', 'pack', 'roll', 'set', 'bucket'],
     default: 'sqm'
   },
+  sqmPricingBasis: {
+    type: String,
+    enum: ['SQM', 'Sheet Size'],
+    default: 'SQM'
+  },
   billingMode: {
     type: String,
     enum: ['area_prorated', 'full_sheet', 'unit'],

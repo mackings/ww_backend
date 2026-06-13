@@ -1,6 +1,19 @@
 const mongoose = require('mongoose');
 const Counter = require('./counterModel');
 
+const normalizeBomUnit = (unit = '') => String(unit).trim().toLowerCase();
+
+const isAreaBomMaterial = (material) => {
+  const unit = normalizeBomUnit(material?.unit);
+  const mode = normalizeBomUnit(material?.calculation?.mode);
+  return unit === 'sqm'
+    || unit === 'square meter'
+    || unit === 'square meters'
+    || mode === 'area_based'
+    || mode === 'area_prorated'
+    || mode === 'full_sheet';
+};
+
 // Avoid model overwrite errors in dev
 if (mongoose.models.BOM) {
   module.exports = mongoose.models.BOM;
@@ -21,10 +34,14 @@ if (mongoose.models.BOM) {
     woodType: String,
     foamType: String,
     type: String,
+    size: String,
+    color: String,
+    billingMode: String,
     width: Number,
     height: Number,
     length: Number,
     thickness: Number,
+    dimensionUnit: String,
     unit: {
       type: String,
       default: 'cm',
@@ -32,7 +49,12 @@ if (mongoose.models.BOM) {
     },
     squareMeter: {
       type: Number,
-      required: true,
+      default: function () {
+        return isAreaBomMaterial(this) ? 0 : undefined;
+      },
+      required: function () {
+        return isAreaBomMaterial(this);
+      },
       min: 0
     },
     price: {
@@ -56,7 +78,8 @@ if (mongoose.models.BOM) {
       billableUnits: Number,
       pricePerSqm: Number,
       pricePerFullUnit: Number,
-      totalMaterialCost: Number
+      totalMaterialCost: Number,
+      manualPrice: Boolean
     }
   });
 

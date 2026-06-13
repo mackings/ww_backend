@@ -21,21 +21,13 @@ exports.checkPermission = (permission) => {
         return error(res, 'No active company found', 403);
       }
 
-      // Owners and admins have all permissions
-      if (['owner', 'admin'].includes(activeCompany.role)) {
-        return next();
+      // All active company members share the operational workspace.
+      // Role checks still protect owner/admin-only management endpoints.
+      if (activeCompany.accessGranted === false) {
+        return error(res, 'Access denied: Company access has been revoked', 403);
       }
 
-      // Check if staff has the required permission
-      if (activeCompany.role === 'staff') {
-        const hasPermission = activeCompany.permissions && activeCompany.permissions[permission];
-        
-        if (!hasPermission) {
-          return error(res, `Access denied: You don't have permission to access ${permission}`, 403);
-        }
-      }
-
-      next();
+      return next();
     } catch (err) {
       console.error('Permission check error:', err);
       return error(res, 'Server error in permission check', 500);
@@ -62,23 +54,11 @@ exports.checkAnyPermission = (permissions) => {
         return error(res, 'No active company found', 403);
       }
 
-      // Owners and admins have all permissions
-      if (['owner', 'admin'].includes(activeCompany.role)) {
-        return next();
+      if (activeCompany.accessGranted === false) {
+        return error(res, 'Access denied: Company access has been revoked', 403);
       }
 
-      // Check if staff has at least one of the required permissions
-      if (activeCompany.role === 'staff') {
-        const hasAnyPermission = permissions.some(
-          perm => activeCompany.permissions && activeCompany.permissions[perm]
-        );
-        
-        if (!hasAnyPermission) {
-          return error(res, `Access denied: You don't have permission to access this resource`, 403);
-        }
-      }
-
-      next();
+      return next();
     } catch (err) {
       console.error('Permission check error:', err);
       return error(res, 'Server error in permission check', 500);

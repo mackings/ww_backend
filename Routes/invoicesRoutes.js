@@ -11,6 +11,8 @@ const {
   updateInvoiceStatus,
   deleteInvoice,
   getInvoiceStats,
+  assignInvoiceToStaff,
+  unassignInvoiceFromStaff,
   uploadPdf
 } = require("../Src/Sales/invoice");
 
@@ -26,6 +28,8 @@ router.get('/invoices', protect, getAllInvoices);
 router.get('/invoices/stats', protect, getInvoiceStats);
 router.get('/invoices/:id', protect, getInvoice);
 router.patch('/:id/payment', protect, updateInvoicePayment);
+router.post('/:id/assign', protect, assignInvoiceToStaff);
+router.post('/:id/unassign', protect, unassignInvoiceFromStaff);
 router.patch('/invoices/:id/status', protect, updateInvoiceStatus);
 router.delete('/invoices/:id', protect, deleteInvoice);
 

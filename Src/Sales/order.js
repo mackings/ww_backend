@@ -7,7 +7,10 @@ const User = require("../../Models/user");
 const { notifyCompany, notifyUser } = require('../../Utils/NotHelper');
 const { sendEmail } = require('../../Utils/emailUtil');
 
-
+const parseMoney = (value, fallback = 0) => {
+  const parsed = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 exports.createOrderFromQuotation = async (req, res) => {
   try {
@@ -18,6 +21,7 @@ exports.createOrderFromQuotation = async (req, res) => {
       notes,
       amountPaid = 0
     } = req.body;
+    const parsedAmountPaid = parseMoney(amountPaid);
 
     const quotation = await Quotation.findOne({
       _id: quotationId,
@@ -94,7 +98,7 @@ exports.createOrderFromQuotation = async (req, res) => {
       totalSellingPrice: quotation.totalSellingPrice,
       discountAmount: quotation.discountAmount,
       totalAmount: quotation.finalTotal,
-      amountPaid: amountPaid || 0,
+      amountPaid: parsedAmountPaid,
       startDate: startDate,
       endDate: endDate,
       notes: notes || ''
@@ -343,7 +347,7 @@ exports.addPayment = async (req, res) => {
     const { id } = req.params;
     const { amount, paymentMethod, reference, notes, paymentDate } = req.body;
 
-    const numericAmount = Number(amount);
+    const numericAmount = parseMoney(amount);
 
     if (isNaN(numericAmount) || numericAmount <= 0) {
       return ApiResponse.error(res, 'Valid numeric payment amount is required', 400);

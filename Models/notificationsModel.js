@@ -63,6 +63,8 @@ const notificationSchema = new mongoose.Schema({
       'invoice_created',
       'invoice_updated',
       'invoice_deleted',
+      'invoice_assigned',
+      'invoice_unassigned',
       
       // BOM events
       'bom_created',

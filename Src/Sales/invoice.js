@@ -1,5 +1,6 @@
 const Invoice = require('../../Models/invoice'); 
 const Quotation = require('../../Models/quotationModel'); 
+const Counter = require('../../Models/counterModel');
 const User = require('../../Models/user');
 const ApiResponse = require('../../Utils/apiResponse');
 
@@ -10,8 +11,48 @@ const multer = require("multer");
 
 const { sendEmail } = require('../../Utils/emailUtil');
 const generateInvoicePDF = require("../../Utils/GenPDF");
-const { notifyCompany } = require('../../Utils/NotHelper');
+const { notifyCompany, notifyUser } = require('../../Utils/NotHelper');
 
+const parseMoney = (value, fallback = 0) => {
+  const parsed = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const syncInvoiceCounter = async () => {
+  const invoices = await Invoice.find({ invoiceNumber: { $regex: /^INV-\d+/ } })
+    .select('invoiceNumber')
+    .lean();
+
+  const maxSeq = invoices.reduce((max, invoice) => {
+    const seq = parseInt(String(invoice.invoiceNumber || '').replace('INV-', ''), 10);
+    return Number.isNaN(seq) ? max : Math.max(max, seq);
+  }, 0);
+
+  await Counter.findOneAndUpdate(
+    { key: 'invoiceNumber' },
+    { $max: { seq: maxSeq } },
+    { upsert: true }
+  );
+};
+
+const saveInvoiceWithRetry = async (invoice, retries = 2) => {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      await invoice.save();
+      return invoice;
+    } catch (error) {
+      lastError = error;
+      if (error?.code === 11000 && error?.keyPattern?.invoiceNumber) {
+        await syncInvoiceCounter();
+        invoice.invoiceNumber = undefined;
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+};
 
 const storage = multer.diskStorage({
   destination: '/tmp',
@@ -39,7 +80,7 @@ const upload = multer({
  */
 exports.createInvoiceFromQuotation = async (req, res) => {
   try {
-    const { quotationId, dueDate, notes, amountPaid } = req.body;
+    const { quotationId, dueDate, notes } = req.body;
 
     // Validate quotation exists and belongs to company
     const quotation = await Quotation.findOne({
@@ -75,12 +116,12 @@ exports.createInvoiceFromQuotation = async (req, res) => {
       totalSellingPrice: quotation.totalSellingPrice,
       discountAmount: quotation.discountAmount,
       finalTotal: quotation.finalTotal,
-      amountPaid: amountPaid || 0,
+      amountPaid: 0,
       dueDate: dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       notes: notes || '',
     });
 
-    await invoice.save();
+    await saveInvoiceWithRetry(invoice);
 
     // Update quotation status
     quotation.status = 'sent';
@@ -96,7 +137,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     } else {
       try {
         pdfPath = `/tmp/invoice_${invoice._id}.pdf`;
-        await generateInvoicePDF(invoice, pdfPath);
+        await generateInvoicePDF(invoice, pdfPath, req.body.invoiceTemplate || 'classic');
         console.log('✅ PDF generated on backend at:', pdfPath);
       } catch (pdfError) {
         console.error('❌ PDF generation failed:', pdfError);
@@ -245,6 +286,8 @@ exports.getAllInvoices = async (req, res) => {
         .skip(skip)
         .limit(parseInt(limit))
         .populate('quotationId', 'quotationNumber status')
+        .populate('assignedTo', 'fullname email phoneNumber position role')
+        .populate('assignedBy', 'fullname email position')
         .lean(),
       Invoice.countDocuments(filter)
     ]);
@@ -278,7 +321,9 @@ exports.getInvoice = async (req, res) => {
     const invoice = await Invoice.findOne({
       _id: id,
       companyName: req.companyName // ✅ Filter by company
-    }).populate('quotationId', 'quotationNumber status description');
+    }).populate('quotationId', 'quotationNumber status description')
+      .populate('assignedTo', 'fullname email phoneNumber position role')
+      .populate('assignedBy', 'fullname email position');
 
     if (!invoice) {
       return ApiResponse.error(res, 'Invoice not found', 404);
@@ -300,6 +345,7 @@ exports.updateInvoicePayment = async (req, res) => {
   try {
     const { id } = req.params;
     const { amountPaid, notes } = req.body;
+    const parsedAmountPaid = parseMoney(amountPaid);
 
     const invoice = await Invoice.findOne({
       _id: id,
@@ -314,21 +360,29 @@ exports.updateInvoicePayment = async (req, res) => {
       return ApiResponse.error(res, 'Cannot update payment for cancelled invoice', 400);
     }
 
+    if (!invoice.assignedTo) {
+      return ApiResponse.error(res, 'Invoice must be assigned to a staff member before payment can be updated', 403);
+    }
+
+    if (String(invoice.assignedTo) !== String(req.user._id)) {
+      return ApiResponse.error(res, 'Only the staff member assigned to this invoice can update payment records', 403);
+    }
+
     // Store old values
     const oldAmountPaid = invoice.amountPaid;
     const oldPaymentStatus = invoice.paymentStatus;
 
     // Update payment with validation
     if (amountPaid !== undefined) {
-      if (amountPaid < 0) {
+      if (parsedAmountPaid < 0) {
         return ApiResponse.error(res, 'Payment amount cannot be negative', 400);
       }
       
-      if (amountPaid > invoice.finalTotal) {
-        return ApiResponse.error(res, `Payment amount (₦${amountPaid.toLocaleString()}) cannot exceed invoice total (₦${invoice.finalTotal.toLocaleString()})`, 400);
+      if (parsedAmountPaid > invoice.finalTotal) {
+        return ApiResponse.error(res, `Payment amount (₦${parsedAmountPaid.toLocaleString()}) cannot exceed invoice total (₦${invoice.finalTotal.toLocaleString()})`, 400);
       }
       
-      invoice.amountPaid = amountPaid;
+      invoice.amountPaid = parsedAmountPaid;
     }
 
     if (notes !== undefined) {
@@ -365,6 +419,184 @@ exports.updateInvoicePayment = async (req, res) => {
   } catch (error) {
     console.error('Update invoice payment error:', error);
     return ApiResponse.error(res, 'Server error updating invoice payment', 500);
+  }
+};
+
+exports.assignInvoiceToStaff = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { staffId, notes } = req.body;
+
+    if (!staffId) {
+      return ApiResponse.error(res, 'Staff ID is required', 400);
+    }
+
+    const currentUser = await User.findById(req.user._id);
+    const activeCompany = currentUser.companies && currentUser.companies.length > 0
+      ? currentUser.companies[currentUser.activeCompanyIndex || 0]
+      : null;
+
+    if (!activeCompany || !activeCompany.name) {
+      return ApiResponse.error(res, 'No active company found', 404);
+    }
+
+    if (!['owner', 'admin'].includes(activeCompany.role)) {
+      return ApiResponse.error(res, 'You do not have permission to assign invoices', 403);
+    }
+
+    const invoice = await Invoice.findOne({
+      _id: id,
+      companyName: activeCompany.name
+    });
+
+    if (!invoice) {
+      return ApiResponse.error(res, 'Invoice not found or unauthorized', 404);
+    }
+
+    if (invoice.status === 'cancelled') {
+      return ApiResponse.error(res, 'Cannot assign cancelled invoices', 400);
+    }
+
+    const staffUser = await User.findById(staffId);
+    if (!staffUser) {
+      return ApiResponse.error(res, 'Staff not found', 404);
+    }
+
+    const staffCompanyData = staffUser.companies.find(c => c.name === activeCompany.name);
+    if (!staffCompanyData) {
+      return ApiResponse.error(res, 'Staff is not part of this company', 404);
+    }
+
+    if (!staffCompanyData.accessGranted) {
+      return ApiResponse.error(res, 'Staff does not have access to this company', 403);
+    }
+
+    invoice.assignedTo = staffId;
+    invoice.assignedBy = req.user._id;
+    invoice.assignedAt = new Date();
+    invoice.assignmentNotes = notes || null;
+    await invoice.save();
+
+    await notifyUser({
+      userId: staffId,
+      companyName: activeCompany.name,
+      type: 'invoice_assigned',
+      title: 'Invoice Assigned to You',
+      message: `${currentUser.fullname} assigned invoice ${invoice.invoiceNumber} (${invoice.clientName}) to you`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        clientName: invoice.clientName,
+        finalTotal: invoice.finalTotal.toFixed(2),
+        assignmentNotes: notes
+      }
+    });
+
+    await notifyCompany({
+      companyName: activeCompany.name,
+      type: 'invoice_assigned',
+      title: 'Invoice Assigned',
+      message: `${currentUser.fullname} assigned invoice ${invoice.invoiceNumber} to ${staffUser.fullname}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        clientName: invoice.clientName,
+        assignedToName: staffUser.fullname,
+        assignedToPosition: staffCompanyData.position
+      },
+      excludeUserId: req.user._id
+    });
+
+    await invoice.populate([
+      { path: 'assignedTo', select: 'fullname email phoneNumber position role' },
+      { path: 'assignedBy', select: 'fullname email position' }
+    ]);
+
+    return ApiResponse.success(res, 'Invoice assigned successfully', invoice);
+  } catch (error) {
+    console.error('Assign invoice error:', error);
+    return ApiResponse.error(res, 'Server error assigning invoice', 500);
+  }
+};
+
+exports.unassignInvoiceFromStaff = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const currentUser = await User.findById(req.user._id);
+    const activeCompany = currentUser.companies && currentUser.companies.length > 0
+      ? currentUser.companies[currentUser.activeCompanyIndex || 0]
+      : null;
+
+    if (!activeCompany || !activeCompany.name) {
+      return ApiResponse.error(res, 'No active company found', 404);
+    }
+
+    if (!['owner', 'admin'].includes(activeCompany.role)) {
+      return ApiResponse.error(res, 'You do not have permission to unassign invoices', 403);
+    }
+
+    const invoice = await Invoice.findOne({
+      _id: id,
+      companyName: activeCompany.name
+    }).populate('assignedTo', 'fullname email');
+
+    if (!invoice) {
+      return ApiResponse.error(res, 'Invoice not found or unauthorized', 404);
+    }
+
+    if (!invoice.assignedTo) {
+      return ApiResponse.error(res, 'Invoice is not assigned to any staff', 400);
+    }
+
+    const previouslyAssignedTo = invoice.assignedTo._id;
+    const previouslyAssignedName = invoice.assignedTo.fullname;
+
+    invoice.assignedTo = null;
+    invoice.assignedBy = null;
+    invoice.assignedAt = null;
+    invoice.assignmentNotes = null;
+    await invoice.save();
+
+    await notifyUser({
+      userId: previouslyAssignedTo,
+      companyName: activeCompany.name,
+      type: 'invoice_unassigned',
+      title: 'Invoice Unassigned',
+      message: `${currentUser.fullname} removed you from invoice ${invoice.invoiceNumber}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        clientName: invoice.clientName
+      }
+    });
+
+    await notifyCompany({
+      companyName: activeCompany.name,
+      type: 'invoice_unassigned',
+      title: 'Invoice Unassigned',
+      message: `${currentUser.fullname} unassigned ${previouslyAssignedName} from invoice ${invoice.invoiceNumber}`,
+      performedBy: req.user._id,
+      performedByName: currentUser.fullname,
+      metadata: {
+        invoiceId: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        clientName: invoice.clientName,
+        previouslyAssignedTo: previouslyAssignedName
+      },
+      excludeUserId: req.user._id
+    });
+
+    return ApiResponse.success(res, 'Invoice unassigned successfully', invoice);
+  } catch (error) {
+    console.error('Unassign invoice error:', error);
+    return ApiResponse.error(res, 'Server error unassigning invoice', 500);
   }
 };
 

@@ -12,12 +12,11 @@ const ALL_PERMISSIONS = Object.freeze({
 
 const getEffectivePermissions = (companyData) => {
   if (!companyData) return {};
-  if (['owner', 'admin'].includes(companyData.role)) return { ...ALL_PERMISSIONS };
-  return { ...(companyData.permissions || {}) };
+  if (companyData.accessGranted === false) return {};
+  return { ...ALL_PERMISSIONS };
 };
 
 module.exports = {
   ALL_PERMISSIONS,
   getEffectivePermissions
 };
-

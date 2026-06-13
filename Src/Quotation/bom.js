@@ -163,11 +163,9 @@ exports.createBOM = async (req, res) => {
       };
     }
 
-    // Auto-assign product name as material name
-    const updatedMaterials = materials.map(mat => ({
-      ...mat,
-      name: productSnapshot?.name || mat.name
-    }));
+    // Product identity belongs to the BOM. Keep each selected material's
+    // catalog identity intact for costing and client-facing breakdowns.
+    const updatedMaterials = materials.map(mat => ({ ...mat }));
 
     // Create BOM linked to the Product
     const bom = new BOM({

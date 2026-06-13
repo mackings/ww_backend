@@ -12,6 +12,7 @@ const {
   normalizeDimensionUnit: normalizeCatalogDimensionUnit
 } = require('../../Utils/materialCatalog');
 const { buildWeakEtag, setJsonCacheHeaders, sendNotModifiedIfMatch } = require('../../Utils/httpCache');
+const { buildApprovedMaterialScope } = require('../../Utils/materialVisibility');
 
 
 const imagekit = new ImageKit({
@@ -63,10 +64,18 @@ const normalizePricingUnit = (unit = '') => {
   const normalized = String(unit || '').trim().toLowerCase();
   if (!normalized) return 'piece';
   if (normalized.includes('square meter') || normalized === 'sqm') return 'sqm';
-  if (normalized.includes('yard') || normalized.includes('meter')) return 'meter';
+  if (normalized.includes('yard')) return 'yard';
+  if (normalized === 'meter' || normalized === 'meters' || normalized === 'metre' || normalized === 'metres') return 'meter';
   if (normalized.includes('pound')) return 'pound';
   if (normalized.includes('bag')) return 'bag';
   if (normalized.includes('liter') || normalized.includes('ltr')) return 'liter';
+  if (normalized.includes('gallon')) return 'gallon';
+  if (normalized.includes('kilogram') || normalized === 'kg') return 'kilogram';
+  if (normalized.includes('pair')) return 'pair';
+  if (normalized.includes('pack')) return 'pack';
+  if (normalized.includes('set')) return 'set';
+  if (normalized.includes('roll')) return 'roll';
+  if (normalized.includes('piece')) return 'piece';
   return 'piece';
 };
 
@@ -74,6 +83,25 @@ const normalizeBillingMode = (mode, pricingUnit = '') => {
   const normalized = String(mode || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
   if (['area_prorated', 'full_sheet', 'unit'].includes(normalized)) return normalized;
   return normalizePricingUnit(pricingUnit) === 'sqm' ? 'area_prorated' : 'unit';
+};
+
+const normalizeSqmPricingBasis = (basis = '') => (
+  String(basis || '').trim().toLowerCase() === 'sheet size' ? 'Sheet Size' : 'SQM'
+);
+
+const resolveMaterialSelectionUnit = (material = {}) => {
+  const explicitUnit = String(material.unit || '').trim().toLowerCase();
+  const supportedExplicitUnit = [
+    'sqm', 'square meter', 'square meters', 'square metre', 'square metres',
+    'piece', 'pieces', 'yard', 'yards', 'bag', 'bags', 'pair', 'pairs',
+    'pack', 'packs', 'set', 'sets', 'roll', 'rolls', 'liter', 'liters',
+    'litre', 'litres', 'pound', 'pounds', 'pound weight', 'gallon',
+    'gallons', 'kilogram', 'kilograms', 'kg'
+  ].some((candidate) => explicitUnit === candidate || explicitUnit.includes(`per ${candidate}`));
+
+  return normalizePricingUnit(
+    supportedExplicitUnit ? material.unit : material.pricingUnit || material.unit
+  );
 };
 
 const normalizeGroupingKey = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -967,12 +995,11 @@ exports.getMaterials = async (req, res) => {
   try {
     const { category, subCategory, isActive = true, search, priced } = req.query;
 
-    // Build query to include company materials + approved global materials
     const query = {
-      $or: [
-        { companyName: req.companyName, status: 'approved' },
-        { isGlobal: true, status: 'approved' }
-      ],
+      ...buildApprovedMaterialScope({
+        isPlatformOwner: req.isPlatformOwner,
+        requestedCompanyName: req.query.companyName
+      }),
       isActive: asBoolean(isActive, true)
     };
 
@@ -1015,6 +1042,7 @@ exports.getMaterials = async (req, res) => {
     const etag = buildWeakEtag([
       'materials',
       req.companyName || '',
+      req.query.companyName || '',
       category || '',
       subCategory || '',
       String(isActive),
@@ -1057,10 +1085,10 @@ exports.getMaterialsGrouped = async (req, res) => {
     const { category, subCategory, isActive = true, search, priced } = req.query;
 
     const query = {
-      $or: [
-        { companyName: req.companyName, status: 'approved' },
-        { isGlobal: true, status: 'approved' }
-      ],
+      ...buildApprovedMaterialScope({
+        isPlatformOwner: req.isPlatformOwner,
+        requestedCompanyName: req.query.companyName
+      }),
       isActive: asBoolean(isActive, true)
     };
 
@@ -1133,10 +1161,12 @@ exports.getMaterialsGrouped = async (req, res) => {
         type: apiMaterial.subCategory || '',
         size: apiMaterial.size || '',
         unit: apiMaterial.unit || '',
+        apiUnit: resolveMaterialSelectionUnit(apiMaterial),
         color: apiMaterial.color || '',
         thickness: apiMaterial.thickness ?? null,
         thicknessUnit: apiMaterial.thicknessUnit || 'inches',
         pricingUnit: apiMaterial.pricingUnit || 'piece',
+        billingMode: apiMaterial.billingMode || 'unit',
         unitPrice: apiMaterial.unitPrice ?? null,
         pricePerUnit: apiMaterial.pricePerUnit ?? null,
         pricePerSqm: apiMaterial.pricePerSqm ?? null,
@@ -1177,6 +1207,7 @@ exports.getMaterialsGrouped = async (req, res) => {
     const etag = buildWeakEtag([
       'materials_grouped',
       req.companyName || '',
+      req.query.companyName || '',
       category || '',
       subCategory || '',
       String(isActive),
@@ -1352,6 +1383,7 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
       pricePerSqm,
       pricePerUnit,
       pricingUnit,
+      sqmPricingBasis,
       billingMode,
       types,
       sizeVariants,
@@ -1485,13 +1517,24 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
     const finalColor = String(color || selectedCatalogMaterial?.color || '').trim();
     const finalUnit = String(unit || selectedCatalogMaterial?.unit || '').trim();
     const catalogPrice = selectedCatalogMaterial ? selectedCatalogMaterial.priceNumeric : null;
-    const finalPricePerUnit = parseNumber(pricePerUnit) ?? catalogPrice;
     const finalPricingUnit = normalizePricingUnit(pricingUnit || selectedCatalogMaterial?.pricingUnit || finalUnit);
     const finalBillingMode = normalizeBillingMode(billingMode, finalPricingUnit);
     const finalStandardWidth = parseNumber(standardWidth) ?? selectedCatalogMaterial?.standardWidth ?? undefined;
     const finalStandardLength = parseNumber(standardLength) ?? selectedCatalogMaterial?.standardLength ?? undefined;
     const finalStandardUnit = normalizeDimensionUnit(standardUnit || selectedCatalogMaterial?.standardUnit || 'inches') || 'inches';
-    const finalPricePerSqm = parseNumber(pricePerSqm) ?? selectedCatalogMaterial?.pricePerSqm ?? null;
+    const finalSqmPricingBasis = normalizeSqmPricingBasis(sqmPricingBasis || selectedCatalogMaterial?.sqmPricingBasis);
+    const enteredPrice = parseNumber(pricePerUnit) ?? catalogPrice;
+    let finalPricePerUnit = enteredPrice;
+    let finalPricePerSqm = parseNumber(pricePerSqm) ?? selectedCatalogMaterial?.pricePerSqm ?? null;
+    if (finalPricingUnit === 'sqm' && enteredPrice !== null) {
+      if (finalSqmPricingBasis === 'SQM') {
+        finalPricePerSqm = enteredPrice;
+        finalPricePerUnit = null;
+      } else if (finalStandardWidth && finalStandardLength) {
+        const standardAreaSqm = calculateSquareMeters(finalStandardWidth, finalStandardLength, finalStandardUnit);
+        finalPricePerSqm = standardAreaSqm > 0 ? enteredPrice / standardAreaSqm : null;
+      }
+    }
     const derivedThickness = selectedCatalogMaterial
       ? { thickness: selectedCatalogMaterial.thickness, thicknessUnit: selectedCatalogMaterial.thicknessUnit }
       : deriveThicknessFromCatalog({ category: finalCategory, size: finalSize });
@@ -1506,11 +1549,31 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
       });
     }
 
-    const categoryForThicknessRule = String(finalCategory || '').trim().toLowerCase();
-    if (['board', 'wood'].includes(categoryForThicknessRule) && (thicknessValue === null || thicknessValue === undefined)) {
+    if (!finalSubCategory) {
       return res.status(400).json({
         success: false,
-        message: "Thickness is required for Board/Wood materials. Provide thickness (e.g. 0.25) and thicknessUnit (e.g. inches)."
+        message: "Subcategory is required"
+      });
+    }
+
+    if (!finalUnit) {
+      return res.status(400).json({
+        success: false,
+        message: "Material unit is required"
+      });
+    }
+
+    const isSqmMaterial = finalPricingUnit === 'sqm';
+    if (isSqmMaterial && (!thicknessValue || thicknessValue <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Thickness must be greater than zero for sqm materials."
+      });
+    }
+    if (isSqmMaterial && (!finalStandardWidth || finalStandardWidth <= 0 || !finalStandardLength || finalStandardLength <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Standard width and length must be greater than zero for sqm materials."
       });
     }
 
@@ -1535,6 +1598,7 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
       pricePerSqm: finalPricePerSqm,
       pricePerUnit: finalPricePerUnit,
       pricingUnit: finalPricingUnit,
+      sqmPricingBasis: finalSqmPricingBasis,
       billingMode: finalBillingMode,
       types: parsedTypes,
       sizeVariants: parsedSizeVariants,
@@ -1596,6 +1660,7 @@ exports.getSupportedMaterialsSummary = async (req, res) => {
 
     res.status(201).json({
       success: true,
+      message: isGlobalMaterial ? "Material created successfully." : "Material submitted for approval.",
       data: materialToApi(material)
     });
 
@@ -1617,22 +1682,30 @@ exports.calculateMaterialCost = async (req, res) => {
   try {
     const { materialId } = req.params;
     const { 
-      requiredWidth, 
-      requiredLength, 
-      requiredUnit,
+      requiredWidth: requiredWidthInput,
+      requiredLength: requiredLengthInput,
+      requiredUnit: requiredUnitInput,
+      width,
+      length,
+      unit,
       materialType,
       sizeVariant,
       foamThickness,
       foamDensity,
-      quantity = 1
+      quantity = 1,
+      manualPrice
     } = req.body;
 
+    const requiredWidth = requiredWidthInput ?? width;
+    const requiredLength = requiredLengthInput ?? length;
+    const requiredUnit = requiredUnitInput ?? unit;
     const parsedRequiredWidth = parseNumber(requiredWidth);
     const parsedRequiredLength = parseNumber(requiredLength);
     const parsedRequiredUnit = normalizeDimensionUnit(requiredUnit || '');
     const hasDimensionInput = parsedRequiredWidth !== null && parsedRequiredLength !== null && Boolean(parsedRequiredUnit);
     const parsedQuantity = parseNumber(quantity);
     const quantityNumber = parsedQuantity === null ? 1 : parsedQuantity;
+    const parsedManualPrice = parseNumber(manualPrice);
 
     if (quantityNumber <= 0) {
       return res.status(400).json({
@@ -1650,10 +1723,9 @@ exports.calculateMaterialCost = async (req, res) => {
 
     const material = await Material.findOne({
       _id: materialId,
-      $or: [
-        { companyName: req.companyName, status: 'approved' },
-        { isGlobal: true, status: 'approved' }
-      ]
+      ...buildApprovedMaterialScope({
+        isPlatformOwner: req.isPlatformOwner
+      })
     });
 
     if (!material) {
@@ -1677,7 +1749,7 @@ exports.calculateMaterialCost = async (req, res) => {
       if (typeUnitPrice !== null) selectedUnitPrice = typeUnitPrice;
     }
 
-    const baseUnitPrice = selectedUnitPrice ?? pricePerUnit;
+    const baseUnitPrice = selectedUnitPrice ?? pricePerUnit ?? parsedManualPrice;
 
     if (!hasDimensionInput) {
       const safeUnitPrice = baseUnitPrice ?? 0;
@@ -1717,6 +1789,9 @@ exports.calculateMaterialCost = async (req, res) => {
     // sizeVariant -> foamVariant -> materialType -> material defaults -> parsed size fallback
     let stockOverrides = { width: null, length: null, unit: null };
     let pricePerSqm = parseNumber(material.pricePerSqm);
+    if (pricePerSqm === null && normalizePricingUnit(material.pricingUnit) === 'sqm') {
+      pricePerSqm = parsedManualPrice;
+    }
     let variantUnitPrice = null;
 
     // Check for size variant
@@ -1786,6 +1861,43 @@ exports.calculateMaterialCost = async (req, res) => {
       if (stockAreaSqm > 0) {
         pricePerSqm = effectiveUnitPrice / stockAreaSqm;
       }
+    }
+
+    if (!stockDimensions && pricePerSqm !== null) {
+      const totalMaterialCost = projectAreaSqm * pricePerSqm * quantityNumber;
+      return res.status(200).json({
+        success: true,
+        data: {
+          material: {
+            id: material._id,
+            name: material.name,
+            category: material.category,
+            subCategory: material.subCategory || '',
+            unit: 'sqm',
+            billingMode: 'area_prorated'
+          },
+          project: {
+            requiredWidth: parsedRequiredWidth,
+            requiredLength: parsedRequiredLength,
+            requiredUnit: parsedRequiredUnit,
+            projectAreaSqm: projectAreaSqm.toFixed(4)
+          },
+          dimensions: {
+            projectAreaSqm: projectAreaSqm.toFixed(4),
+            standardAreaSqm: null
+          },
+          calculation: {
+            mode: 'area_prorated',
+            quantity: quantityNumber,
+            billableUnits: projectAreaSqm * quantityNumber,
+            needsPricing: false
+          },
+          pricing: {
+            pricePerSqm: pricePerSqm.toFixed(2),
+            totalMaterialCost: totalMaterialCost.toFixed(2)
+          }
+        }
+      });
     }
 
     if (!stockDimensions || pricePerSqm === null) {
@@ -1910,6 +2022,7 @@ exports.calculateMaterialCost = async (req, res) => {
           minimumUnits: billingMode === 'area_prorated' ? 0 : minimumUnits,
           quantity: quantityNumber,
           billableUnits,
+          needsPricing: effectiveUnitPrice === null && pricePerSqm === null,
           wasteThreshold: material.wasteThreshold,
           rawRemainder: billingMode === 'area_prorated' ? '0.0000' : rawRemainder.toFixed(4),
           wasteThresholdArea: wasteThresholdArea.toFixed(4),
@@ -1947,12 +2060,11 @@ exports.calculateMaterialCost = async (req, res) => {
 exports.updateMaterial = async (req, res) => {
   try {
     const { materialId } = req.params;
-    const updateData = req.body;
+    const updateData = { ...req.body };
 
-    const material = await Material.findOne({
-      _id: materialId,
-      companyName: req.companyName // ✅ Filter by company
-    });
+    const material = await Material.findOne(req.user.isPlatformOwner
+      ? { _id: materialId }
+      : { _id: materialId, companyName: req.companyName });
 
     if (!material) {
       return res.status(404).json({
@@ -1961,17 +2073,72 @@ exports.updateMaterial = async (req, res) => {
       });
     }
 
-    // Store old values
     const oldName = material.name;
-    const oldCategory = material.category;
 
-    // Update material
-    if (updateData.pricingUnit !== undefined) updateData.pricingUnit = normalizePricingUnit(updateData.pricingUnit);
-    if (updateData.billingMode !== undefined) {
-      updateData.billingMode = normalizeBillingMode(updateData.billingMode, updateData.pricingUnit || material.pricingUnit);
+    const allowedFields = [
+      'name', 'category', 'subCategory', 'size', 'color', 'thickness', 'thicknessUnit',
+      'standardWidth', 'standardLength', 'standardUnit', 'pricePerSqm', 'pricePerUnit',
+      'pricingUnit', 'sqmPricingBasis', 'billingMode', 'unit', 'notes'
+    ];
+    Object.keys(updateData).forEach((key) => {
+      if (!allowedFields.includes(key)) delete updateData[key];
+    });
+
+    const finalPricingUnit = normalizePricingUnit(updateData.pricingUnit || updateData.unit || material.pricingUnit);
+    const finalUnit = String(updateData.unit ?? material.unit ?? '').trim();
+    const finalSubCategory = String(updateData.subCategory ?? material.subCategory ?? '').trim();
+    const finalThickness = parseNumberish(updateData.thickness ?? material.thickness);
+    const finalStandardWidth = parseNumber(updateData.standardWidth ?? material.standardWidth);
+    const finalStandardLength = parseNumber(updateData.standardLength ?? material.standardLength);
+    const finalStandardUnit = normalizeDimensionUnit(updateData.standardUnit || material.standardUnit || 'inches') || 'inches';
+    const finalSqmPricingBasis = normalizeSqmPricingBasis(updateData.sqmPricingBasis || material.sqmPricingBasis);
+    const enteredPrice = parseNumber(updateData.pricePerUnit);
+
+    if (!finalSubCategory) {
+      return res.status(400).json({ success: false, message: "Subcategory is required" });
     }
-    if (updateData.standardUnit !== undefined) updateData.standardUnit = normalizeDimensionUnit(updateData.standardUnit);
-    if (updateData.thicknessUnit !== undefined) updateData.thicknessUnit = normalizeDimensionUnit(updateData.thicknessUnit);
+    if (!finalUnit) {
+      return res.status(400).json({ success: false, message: "Material unit is required" });
+    }
+    if (finalPricingUnit === 'sqm') {
+      if (!finalThickness || finalThickness <= 0) {
+        return res.status(400).json({ success: false, message: "Thickness must be greater than zero for sqm materials." });
+      }
+      if (!finalStandardWidth || finalStandardWidth <= 0 || !finalStandardLength || finalStandardLength <= 0) {
+        return res.status(400).json({ success: false, message: "Standard width and length must be greater than zero for sqm materials." });
+      }
+      if (enteredPrice !== null) {
+        if (finalSqmPricingBasis === 'SQM') {
+          updateData.pricePerSqm = enteredPrice;
+          updateData.pricePerUnit = null;
+        } else {
+          const standardAreaSqm = calculateSquareMeters(finalStandardWidth, finalStandardLength, finalStandardUnit);
+          updateData.pricePerSqm = standardAreaSqm > 0 ? enteredPrice / standardAreaSqm : null;
+        }
+      }
+    } else {
+      updateData.thickness = null;
+      updateData.standardWidth = null;
+      updateData.standardLength = null;
+      updateData.pricePerSqm = null;
+    }
+
+    updateData.pricingUnit = finalPricingUnit;
+    updateData.sqmPricingBasis = finalSqmPricingBasis;
+    updateData.billingMode = normalizeBillingMode(updateData.billingMode, finalPricingUnit);
+    updateData.standardUnit = finalStandardUnit;
+    if (updateData.thicknessUnit !== undefined) {
+      updateData.thicknessUnit = normalizeDimensionUnit(updateData.thicknessUnit);
+    }
+    if (req.file) {
+      const uploadResult = await imagekit.upload({
+        file: req.file.buffer.toString("base64"),
+        fileName: `material_${Date.now()}_${req.file.originalname}`,
+        folder: '/materials'
+      });
+      updateData.image = uploadResult.url;
+    }
+
     Object.assign(material, updateData);
     await material.save();
 
@@ -1997,14 +2164,15 @@ exports.updateMaterial = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: material
+      message: "Material updated successfully.",
+      data: materialToApi(material)
     });
 
   } catch (error) {
     console.error("Update material error:", error);
     res.status(500).json({
       success: false,
-      message: "Error updating material"
+      message: error.message || "Error updating material"
     });
   }
 };
