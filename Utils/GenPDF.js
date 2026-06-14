@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
+const { normalizeInvoiceTemplate } = require('./invoiceTemplates');
 
 /**
  * Generate an invoice PDF and save to filePath
@@ -35,7 +36,7 @@ async function generateInvoicePDF(invoice, filePath, template = 'classic') {
 
       console.log('📄 Generating PDF at:', outputPath);
 
-      const selectedTemplate = ['classic', 'modern', 'minimal'].includes(template) ? template : 'classic';
+      const selectedTemplate = normalizeInvoiceTemplate(template);
       const palette = {
         classic: { primary: '#333333', accent: '#A16438', panel: '#f5f8f2' },
         modern: { primary: '#2f211a', accent: '#9a4d0f', panel: '#fff2e6' },

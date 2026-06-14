@@ -13,6 +13,13 @@ import { SalesAnalytics } from "@/features/operations/components/sales-analytics
 import { RecordCards } from "@/features/operations/components/record-cards";
 import { loadResource, submitOperation } from "@/features/operations/services/operations-service";
 import { BomQuotationWorkspace } from "@/features/operations/screens/bom-quotation-workspace";
+import {
+  AnalyticsSkeleton,
+  CardGridSkeleton,
+  StatGridSkeleton,
+  TableSkeleton,
+  WorkspaceSkeleton
+} from "@/features/shared/components/loading-skeletons";
 
 export function OperationsScreen({ params }) {
   const resolvedParams = use(params);
@@ -20,7 +27,7 @@ export function OperationsScreen({ params }) {
   const { token, user, isAdmin, ready, refreshUser } = useAuth();
   const [activeId, setActiveId] = useState(moduleConfig?.resources?.[0]?.id);
 
-  if (!ready || !user) return <div className="page-loader"><span className="spinner" />Loading workspace...</div>;
+  if (!ready || !user) return <WorkspaceSkeleton />;
   if (!moduleConfig || (moduleConfig.admin && !isAdmin)) notFound();
   if (["boms", "quotations"].includes(resolvedParams.module)) {
     return <BomQuotationWorkspace token={token} user={user} mode={resolvedParams.module} />;
@@ -62,6 +69,7 @@ function ResourceWorkspace({
   const [materialToEdit, setMaterialToEdit] = useState(null);
   const [actionForm, setActionForm] = useState(null);
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const fetchRows = useCallback(async () => {
     if (!token || !activeResource) return;
@@ -72,6 +80,7 @@ function ResourceWorkspace({
       setPayload(payload);
       const nextRows = activeResource.rows(payload);
       setRows(Array.isArray(nextRows) ? nextRows : []);
+      setSelectedIds([]);
     } catch (requestError) {
       setError(requestError.message);
       setRows([]);
@@ -162,6 +171,21 @@ function ResourceWorkspace({
     });
   };
 
+  const handleBulkAction = async (action, selectedRows) => {
+    if (!selectedRows.length) return;
+    const confirmation = typeof action.confirm === "function"
+      ? action.confirm(selectedRows)
+      : action.confirm;
+    if (confirmation && !window.confirm(confirmation)) return;
+
+    const success = await mutate({
+      path: action.path,
+      method: action.method,
+      body: action.body ? action.body(selectedRows) : undefined
+    });
+    if (success) setSelectedIds([]);
+  };
+
   const submitActionForm = async (values) => {
     const { action, row, rowIndex } = actionForm;
     const path = typeof action.path === "function" ? action.path(row) : action.path;
@@ -199,7 +223,7 @@ function ResourceWorkspace({
 
       {activeResource.stats && (
         <section className="stat-grid resource-stats">
-          {activeResource.stats.map(([label, calculate]) => (
+          {loading ? <StatGridSkeleton count={activeResource.stats.length} /> : activeResource.stats.map(([label, calculate]) => (
             <article className="stat-card" key={label}><span>{label}</span><strong>{calculate(rows)}</strong><small>Current view</small></article>
           ))}
         </section>
@@ -237,13 +261,28 @@ function ResourceWorkspace({
         {notice && <div className="alert success">{notice}</div>}
         {error && <div className="alert error">{error}</div>}
         {loading ? (
-          <div className="loading-block"><span className="spinner" />Loading {activeResource.label.toLowerCase()}...</div>
+          activeResource.view === "sales-analytics"
+            ? <AnalyticsSkeleton />
+            : activeResource.view === "cards"
+              ? <CardGridSkeleton />
+              : <TableSkeleton columns={(activeResource.columns?.length || 6) + 1} />
         ) : activeResource.view === "sales-analytics" ? (
           <SalesAnalytics payload={payload} />
         ) : activeResource.view === "cards" ? (
           <RecordCards type={activeResource.cardType} rows={rows} actions={activeResource.rowActions} onAction={handleAction} onView={setSelectedRecord} busy={busy} />
         ) : (
-          <DataTable rows={rows} columns={activeResource.columns} actions={activeResource.rowActions} onAction={handleAction} onView={setSelectedRecord} busy={busy} />
+          <DataTable
+            rows={rows}
+            columns={activeResource.columns}
+            actions={activeResource.rowActions}
+            bulkActions={activeResource.bulkActions}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            onBulkAction={handleBulkAction}
+            onAction={handleAction}
+            onView={setSelectedRecord}
+            busy={busy}
+          />
         )}
       </section>
 

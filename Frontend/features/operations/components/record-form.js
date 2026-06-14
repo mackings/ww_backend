@@ -2,9 +2,25 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "@/services/api-client";
+import { InvoiceTemplatePreview } from "@/features/operations/components/invoice-template-preview";
 
-const initialValues = (fields) => Object.fromEntries(
-  fields.map((field) => [field.name, field.type === "multi-lookup" ? [] : field.defaultValue ?? ""])
+const preferenceKey = (field, cacheScope) => [
+  "ww_preference",
+  field.preferenceKey,
+  cacheScope?.userId || "user",
+  cacheScope?.companyName || "company"
+].join(":");
+
+const savedFieldDefault = (field, cacheScope) => {
+  if (!field.preferenceKey || typeof window === "undefined") return field.defaultValue ?? "";
+  return localStorage.getItem(preferenceKey(field, cacheScope)) || field.defaultValue || "";
+};
+
+const initialValues = (fields, cacheScope) => Object.fromEntries(
+  fields.map((field) => [
+    field.name,
+    field.type === "multi-lookup" ? [] : savedFieldDefault(field, cacheScope)
+  ])
 );
 
 const numberFromFormatted = (value) => {
@@ -48,7 +64,7 @@ const buildCacheKey = (definition, cacheScope) => {
 };
 
 export function RecordForm({ definition, onSubmit, onClose, submitting, token, cacheScope }) {
-  const defaults = useMemo(() => initialValues(definition.fields), [definition.fields]);
+  const defaults = useMemo(() => initialValues(definition.fields, cacheScope), [definition.fields, cacheScope]);
   const cacheKey = useMemo(() => buildCacheKey(definition, cacheScope), [definition, cacheScope]);
   const readCachedDraft = () => {
     if (!cacheKey) return { restored: false, values: defaults };
@@ -63,7 +79,18 @@ export function RecordForm({ definition, onSubmit, onClose, submitting, token, c
   const [initialDraft] = useState(readCachedDraft);
   const [values, setValues] = useState(initialDraft.values);
   const [lookups, setLookups] = useState({});
+  const [lookupLoading, setLookupLoading] = useState(() => Object.fromEntries(
+    definition.fields
+      .filter((field) => ["lookup", "multi-lookup"].includes(field.type))
+      .map((field) => [field.name, true])
+  ));
+  const [lookupErrors, setLookupErrors] = useState({});
   const [draftRestored, setDraftRestored] = useState(initialDraft.restored);
+  const [savedDefaults, setSavedDefaults] = useState(() => Object.fromEntries(
+    definition.fields
+      .filter((field) => field.preferenceKey)
+      .map((field) => [field.name, savedFieldDefault(field, cacheScope)])
+  ));
 
   useEffect(() => {
     if (!cacheKey) return;
@@ -79,9 +106,12 @@ export function RecordForm({ definition, onSubmit, onClose, submitting, token, c
     definition.fields.filter((field) => ["lookup", "multi-lookup"].includes(field.type)).forEach((field) => {
       apiRequest(field.lookup.path, { token, query: field.lookup.query }).then((payload) => {
         const rows = field.lookup.rows(payload);
-        setLookups((current) => ({ ...current, [field.name]: rows }));
-      }).catch(() => {
+        setLookups((current) => ({ ...current, [field.name]: Array.isArray(rows) ? rows : [] }));
+      }).catch((requestError) => {
         setLookups((current) => ({ ...current, [field.name]: [] }));
+        setLookupErrors((current) => ({ ...current, [field.name]: requestError.message || "Could not load options." }));
+      }).finally(() => {
+        setLookupLoading((current) => ({ ...current, [field.name]: false }));
       });
     });
   }, [definition.fields, token]);
@@ -90,6 +120,18 @@ export function RecordForm({ definition, onSubmit, onClose, submitting, token, c
     if (cacheKey) localStorage.removeItem(cacheKey);
     setValues(defaults);
     setDraftRestored(false);
+  };
+
+  const saveDefault = (field, value) => {
+    localStorage.setItem(preferenceKey(field, cacheScope), value);
+    setSavedDefaults((current) => ({ ...current, [field.name]: value }));
+    setValues((current) => ({ ...current, [field.name]: value }));
+  };
+
+  const selectedLookupRecord = (fieldName) => {
+    const sourceField = definition.fields.find((field) => field.name === fieldName);
+    if (!sourceField?.lookup) return null;
+    return (lookups[fieldName] || []).find((row) => String(sourceField.lookup.value(row)) === String(values[fieldName])) || null;
   };
 
   const submit = async (event) => {
@@ -135,14 +177,27 @@ export function RecordForm({ definition, onSubmit, onClose, submitting, token, c
                   {field.options.map((option) => <option key={option} value={option}>{option.replaceAll("_", " ")}</option>)}
                 </select>
               ) : field.type === "lookup" ? (
-                <select required={field.required} value={values[field.name]} onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}>
-                  <option value="">Select {field.label.toLowerCase()}</option>
-                  {(lookups[field.name] || []).filter((row) => !field.lookup.filter || field.lookup.filter(row)).map((row) => (
-                    <option key={field.lookup.value(row)} value={field.lookup.serialize ? JSON.stringify(row) : field.lookup.value(row)}>
-                      {field.lookup.label(row)}
+                <>
+                  <select
+                    disabled={lookupLoading[field.name]}
+                    required={field.required}
+                    value={values[field.name]}
+                    onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
+                  >
+                    <option value="">
+                      {lookupLoading[field.name] ? `Loading ${field.label.toLowerCase()}...` : `Select ${field.label.toLowerCase()}`}
                     </option>
-                  ))}
-                </select>
+                    {(lookups[field.name] || []).filter((row) => !field.lookup.filter || field.lookup.filter(row)).map((row) => (
+                      <option key={field.lookup.value(row)} value={field.lookup.serialize ? JSON.stringify(row) : field.lookup.value(row)}>
+                        {field.lookup.label(row)}
+                      </option>
+                    ))}
+                  </select>
+                  {lookupErrors[field.name] && <small className="field-message error">{lookupErrors[field.name]}</small>}
+                  {!lookupLoading[field.name] && !lookupErrors[field.name] && !(lookups[field.name] || []).filter((row) => !field.lookup.filter || field.lookup.filter(row)).length && (
+                    <small className="field-message">No eligible {field.label.toLowerCase()} found for this company.</small>
+                  )}
+                </>
               ) : field.type === "multi-lookup" ? (
                 <div className="lookup-checklist">
                   {(lookups[field.name] || []).map((row) => {
@@ -172,11 +227,37 @@ export function RecordForm({ definition, onSubmit, onClose, submitting, token, c
               ) : field.type === "template-choice" ? (
                 <div className="template-choice-grid">
                   {field.options.map((option) => (
-                    <button type="button" key={option.value} className={values[field.name] === option.value ? "template-choice-card selected" : "template-choice-card"} onClick={() => setValues({ ...values, [field.name]: option.value })}>
-                      <span className={`template-preview template-${option.value}`}><i /><b /><em /></span>
-                      <strong>{option.label}</strong>
-                      <small>{option.description}</small>
-                    </button>
+                    <article key={option.value} className={values[field.name] === option.value ? "template-choice-card selected" : "template-choice-card"}>
+                      <button
+                        aria-pressed={values[field.name] === option.value}
+                        className="template-select-button"
+                        onClick={() => setValues({ ...values, [field.name]: option.value })}
+                        type="button"
+                      >
+                        <InvoiceTemplatePreview
+                          dueDate={values.dueDate}
+                          quotation={field.previewFrom ? selectedLookupRecord(field.previewFrom) : null}
+                          template={option.value}
+                        />
+                        <span className="template-choice-copy">
+                          <span>
+                            <strong>{option.label}</strong>
+                            {savedDefaults[field.name] === option.value && <em>Default</em>}
+                          </span>
+                          <small>{option.description}</small>
+                        </span>
+                      </button>
+                      {field.preferenceKey && (
+                        <button
+                          className="template-default-button"
+                          disabled={savedDefaults[field.name] === option.value}
+                          onClick={() => saveDefault(field, option.value)}
+                          type="button"
+                        >
+                          {savedDefaults[field.name] === option.value ? "Current default" : "Set as default"}
+                        </button>
+                      )}
+                    </article>
                   ))}
                 </div>
               ) : (

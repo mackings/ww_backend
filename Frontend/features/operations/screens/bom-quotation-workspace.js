@@ -13,6 +13,7 @@ import {
   numberValue
 } from "@/features/operations/utils/bom-pricing";
 import { apiRequest } from "@/services/api-client";
+import { WorkspaceSkeleton } from "@/features/shared/components/loading-skeletons";
 
 const emptyBom = {
   materials: [],
@@ -612,7 +613,7 @@ export function BomQuotationWorkspace({ token, user, mode }) {
     }
   };
 
-  if (loading) return <div className="page-loader"><span className="spinner" />Loading BOM workspace...</div>;
+  if (loading) return <AppShell><WorkspaceSkeleton titleWidth="48%" /></AppShell>;
 
   return (
     <AppShell>

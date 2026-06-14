@@ -12,6 +12,7 @@ const multer = require("multer");
 const { sendEmail } = require('../../Utils/emailUtil');
 const generateInvoicePDF = require("../../Utils/GenPDF");
 const { notifyCompany, notifyUser } = require('../../Utils/NotHelper');
+const { isInvoiceTemplate, normalizeInvoiceTemplate } = require('../../Utils/invoiceTemplates');
 
 const parseMoney = (value, fallback = 0) => {
   const parsed = Number(String(value ?? '').replace(/,/g, ''));
@@ -80,7 +81,11 @@ const upload = multer({
  */
 exports.createInvoiceFromQuotation = async (req, res) => {
   try {
-    const { quotationId, dueDate, notes } = req.body;
+    const { quotationId, dueDate, notes, invoiceTemplate } = req.body;
+    if (invoiceTemplate && !isInvoiceTemplate(invoiceTemplate)) {
+      return ApiResponse.error(res, 'Invoice template must be classic, modern, or minimal', 400);
+    }
+    const selectedTemplate = normalizeInvoiceTemplate(invoiceTemplate);
 
     // Validate quotation exists and belongs to company
     const quotation = await Quotation.findOne({
@@ -119,6 +124,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
       amountPaid: 0,
       dueDate: dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       notes: notes || '',
+      invoiceTemplate: selectedTemplate,
     });
 
     await saveInvoiceWithRetry(invoice);
@@ -137,7 +143,7 @@ exports.createInvoiceFromQuotation = async (req, res) => {
     } else {
       try {
         pdfPath = `/tmp/invoice_${invoice._id}.pdf`;
-        await generateInvoicePDF(invoice, pdfPath, req.body.invoiceTemplate || 'classic');
+        await generateInvoicePDF(invoice, pdfPath, selectedTemplate);
         console.log('✅ PDF generated on backend at:', pdfPath);
       } catch (pdfError) {
         console.error('❌ PDF generation failed:', pdfError);

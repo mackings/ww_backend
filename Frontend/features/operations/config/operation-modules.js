@@ -487,7 +487,6 @@ export const operationModules = {
         create: {
           label: "Create invoice",
           path: "/api/invoices/create",
-          multipart: true,
           fields: [
             field("quotationId", "Quotation", {
               type: "lookup",
@@ -495,8 +494,10 @@ export const operationModules = {
               lookup: {
                 path: "/api/quotation",
                 query: { page: 1, limit: 100 },
-                rows: (payload) => payload?.data || [],
-                filter: (row) => ["draft", "sent", "approved"].includes(row.status),
+                rows: (payload) => Array.isArray(payload?.data)
+                  ? payload.data
+                  : payload?.data?.data || payload?.data?.quotations || payload?.quotations || [],
+                filter: (row) => !row.status || ["draft", "sent", "approved"].includes(String(row.status).toLowerCase()),
                 value: (row) => row._id,
                 label: (row) => `${row.quotationNumber} · ${row.clientName} · ${currency(row.finalTotal)}`
               }
@@ -507,6 +508,8 @@ export const operationModules = {
               type: "template-choice",
               full: true,
               defaultValue: "classic",
+              preferenceKey: "invoice-template",
+              previewFrom: "quotationId",
               options: [
                 { value: "classic", label: "Classic", description: "Clean formal invoice with standard sections." },
                 { value: "modern", label: "Modern", description: "Bold header and compact payment summary." },
@@ -704,6 +707,18 @@ export const operationModules = {
       resource("pending-materials", "Material approvals", "/api/platform/materials/pending", {
         query: { page: 1, limit: 50, companyName: "", category: "" },
         columns: [["image", "Image", (value) => value, "image"], ["name", "Material"], ["companyName", "Company"], ["category", "Category"], ["subCategory", "Type"], ["unit", "Unit"], ["createdAt", "Submitted", date]],
+        bulkActions: [
+          {
+            label: "Approve selected",
+            path: "/api/platform/materials/approve",
+            method: "PATCH",
+            confirm: (rows) => `Approve ${rows.length} selected material${rows.length === 1 ? "" : "s"}?`,
+            body: (rows) => ({
+              materialIds: rows.map((row) => row._id),
+              notes: "Approved in bulk from web dashboard"
+            })
+          }
+        ],
         rowActions: [
           { label: "Edit", materialEdit: true },
           { label: "Approve", path: (row) => `/api/platform/materials/${row._id}/approve`, method: "PATCH", body: () => ({ notes: "Approved from web dashboard" }) },

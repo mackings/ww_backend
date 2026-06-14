@@ -7,6 +7,7 @@ import { WorkspaceIcon } from "@/features/navigation/components/workspace-icon";
 import { useAuth } from "@/features/auth/context/auth-context";
 import { productNavigation } from "@/features/operations/config/operation-modules";
 import { loadDashboard } from "@/features/dashboard/services/dashboard-service";
+import { RecentListSkeleton, StatGridSkeleton } from "@/features/shared/components/loading-skeletons";
 
 const valueFrom = (object, paths, fallback = 0) => {
   for (const path of paths) {
@@ -23,20 +24,30 @@ export function DashboardScreen() {
   const [companiesTotal, setCompaniesTotal] = useState(null);
   const [recentQuotations, setRecentQuotations] = useState([]);
   const [recentProducts, setRecentProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!token) return;
-    loadDashboard({ token, isAdmin }).then((result) => {
-      setDashboard(result.dashboard);
-      setMaterials(result.materials);
-      setCompaniesTotal(result.companiesTotal);
-      setRecentQuotations(result.quotations);
-      setRecentProducts(result.products);
-      if (result.unavailable) {
-        setError("Dashboard data could not be loaded. Use the workspaces to inspect individual services.");
-      }
-    });
+    let cancelled = false;
+    loadDashboard({ token, isAdmin })
+      .then((result) => {
+        if (cancelled) return;
+        setDashboard(result.dashboard);
+        setMaterials(result.materials);
+        setCompaniesTotal(result.companiesTotal);
+        setRecentQuotations(result.quotations);
+        setRecentProducts(result.products);
+        if (result.unavailable) {
+          setError("Dashboard data could not be loaded. Use the workspaces to inspect individual services.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isAdmin, token]);
 
   const cards = isAdmin
@@ -72,7 +83,7 @@ export function DashboardScreen() {
       {error && <div className="alert error">{error}</div>}
 
       <section className="stat-grid">
-        {cards.map(([label, value, format]) => (
+        {loading ? <StatGridSkeleton count={cards.length} /> : cards.map(([label, value, format]) => (
           <article className="stat-card" key={label}>
             <span>{label}</span>
             <strong>
@@ -112,7 +123,7 @@ export function DashboardScreen() {
               <div><span className="eyebrow">Recent activity</span><h2>Quotations</h2></div>
               <Link className="text-link" href="/workspace/quotations">View all</Link>
             </div>
-            <div className="recent-list">
+            {loading ? <RecentListSkeleton /> : <div className="recent-list">
               {recentQuotations.map((quotation) => (
                 <Link href="/workspace/quotations" key={quotation._id}>
                   <span className="recent-icon">Q</span>
@@ -121,7 +132,7 @@ export function DashboardScreen() {
                 </Link>
               ))}
               {!recentQuotations.length && <p>No recent quotations.</p>}
-            </div>
+            </div>}
           </article>
 
           <article className="panel">
@@ -129,7 +140,7 @@ export function DashboardScreen() {
               <div><span className="eyebrow">Product library</span><h2>Recent products</h2></div>
               <Link className="text-link" href="/workspace/products">View all</Link>
             </div>
-            <div className="recent-list">
+            {loading ? <RecentListSkeleton /> : <div className="recent-list">
               {recentProducts.slice(0, 5).map((product) => (
                 <Link href="/workspace/products" key={product._id}>
                   <span className="recent-icon">P</span>
@@ -138,7 +149,7 @@ export function DashboardScreen() {
                 </Link>
               ))}
               {!recentProducts.length && <p>No recent products.</p>}
-            </div>
+            </div>}
           </article>
         </section>
       )}

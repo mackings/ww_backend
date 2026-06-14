@@ -139,6 +139,11 @@ const invoiceSchema = new mongoose.Schema({
     default: null
   },
   notes: String,
+  invoiceTemplate: {
+    type: String,
+    enum: ['classic', 'modern', 'minimal'],
+    default: 'classic'
+  },
   createdAt: {
     type: Date,
     default: Date.now
