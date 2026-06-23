@@ -100,7 +100,34 @@ export const operationModules = {
           path: "/api/product/creatematerial",
           multipart: true,
           form: "material"
-        }
+        },
+        rowActions: [
+          {
+            label: "Update price",
+            path: (row) => `/api/product/materials/${row._id}/price`,
+            method: "PATCH",
+            form: {
+              label: "Update material price",
+              fields: [
+                field("price", "Price", { type: "number", required: true }),
+                field("pricingUnit", "Pricing unit", {
+                  type: "select",
+                  options: ["sqm", "piece", "yard", "bag", "pair", "pack", "set", "roll", "liter", "pound", "gallon", "kilogram"]
+                }),
+                field("sqmPricingBasis", "For sqm, is this per sqm or full sheet?", {
+                  type: "select",
+                  options: ["SQM", "Sheet Size"]
+                })
+              ],
+              transform: (values, row) => ({
+                price: Number(values.price || 0),
+                pricingUnit: values.pricingUnit || row.pricingUnit || row.unit,
+                sqmPricingBasis: values.sqmPricingBasis || row.sqmPricingBasis || "SQM"
+              }),
+              validate: (values) => Number(values.price) > 0 ? "" : "Enter a material price."
+            }
+          }
+        ]
       }),
       resource("catalog", "Supported catalog", "/api/product/materials/supported", {
         query: { page: 1, limit: 500, search: "", category: "", priced: "" },
@@ -161,7 +188,7 @@ export const operationModules = {
   },
   quotations: {
     title: "Quotations",
-    description: "Client estimates that automatically produce Build of Materials records.",
+    description: "Client estimates that automatically produce Bill of Materials records.",
     resources: [
       resource("quotations", "Quotations", "/api/quotation", {
         view: "cards",
@@ -246,7 +273,7 @@ export const operationModules = {
     ]
   },
   boms: {
-    title: "Build of Materials",
+    title: "Bill of Materials",
     description: "Material requirements, additional costs and production pricing.",
     resources: [
       resource("boms", "BOM register", "/api/bom", {
@@ -739,7 +766,7 @@ export const productNavigation = [
   ["materials", "Materials"],
   ["products", "Products"],
   ["quotations", "Quotations"],
-  ["boms", "Build of Materials"],
+  ["boms", "Bill of Materials"],
   ["orders", "Orders"],
   ["sales", "Sales & Inventory"],
   ["invoices", "Invoices"],

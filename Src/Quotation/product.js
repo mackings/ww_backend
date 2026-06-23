@@ -1693,7 +1693,8 @@ exports.calculateMaterialCost = async (req, res) => {
       foamThickness,
       foamDensity,
       quantity = 1,
-      manualPrice
+      manualPrice,
+      manualPriceBasis
     } = req.body;
 
     const requiredWidth = requiredWidthInput ?? width;
@@ -1706,6 +1707,18 @@ exports.calculateMaterialCost = async (req, res) => {
     const parsedQuantity = parseNumber(quantity);
     const quantityNumber = parsedQuantity === null ? 1 : parsedQuantity;
     const parsedManualPrice = parseNumber(manualPrice);
+    const normalizedManualPriceBasis = String(manualPriceBasis || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[_-]+/g, ' ');
+    const isManualFullUnitPrice = [
+      'full',
+      'full price',
+      'full unit',
+      'full sheet',
+      'sheet',
+      'sheet size'
+    ].includes(normalizedManualPriceBasis);
 
     if (quantityNumber <= 0) {
       return res.status(400).json({
@@ -1789,7 +1802,7 @@ exports.calculateMaterialCost = async (req, res) => {
     // sizeVariant -> foamVariant -> materialType -> material defaults -> parsed size fallback
     let stockOverrides = { width: null, length: null, unit: null };
     let pricePerSqm = parseNumber(material.pricePerSqm);
-    if (pricePerSqm === null && normalizePricingUnit(material.pricingUnit) === 'sqm') {
+    if (pricePerSqm === null && normalizePricingUnit(material.pricingUnit) === 'sqm' && !isManualFullUnitPrice) {
       pricePerSqm = parsedManualPrice;
     }
     let variantUnitPrice = null;
@@ -1851,7 +1864,7 @@ exports.calculateMaterialCost = async (req, res) => {
     }
 
     const stockDimensions = getStockDimensionsForPricing(material, stockOverrides);
-    const effectiveUnitPrice = variantUnitPrice ?? baseUnitPrice;
+    const effectiveUnitPrice = variantUnitPrice ?? (isManualFullUnitPrice ? parsedManualPrice : baseUnitPrice);
     const billingMode = normalizeBillingMode(material.billingMode, material.pricingUnit);
 
     // Excel-aligned model:
@@ -1900,7 +1913,7 @@ exports.calculateMaterialCost = async (req, res) => {
       });
     }
 
-    if (!stockDimensions || pricePerSqm === null) {
+    if (!stockDimensions) {
       const safeUnitPrice = effectiveUnitPrice ?? 0;
       const totalMaterialCost = quantityNumber * safeUnitPrice;
       return res.status(200).json({
@@ -1961,6 +1974,10 @@ exports.calculateMaterialCost = async (req, res) => {
       });
     }
 
+    if (pricePerSqm === null && effectiveUnitPrice !== null) {
+      pricePerSqm = effectiveUnitPrice / standardAreaSqm;
+    }
+
     // Calculate minimum stock units needed to cover the requested area.
     // This mirrors the material database model: job area divided by stock area.
     const rawRemainder = projectAreaSqm % standardAreaSqm;
@@ -1968,15 +1985,15 @@ exports.calculateMaterialCost = async (req, res) => {
     let minimumUnits = Math.ceil(projectAreaSqm / standardAreaSqm);
     if (minimumUnits < 1) minimumUnits = 1;
 
-    // Never let a computed full-sheet price exceed the actual full-sheet unit price.
-    // This prevents sub-standard-area projects from costing more than one full board.
-    const computedPricePerFullUnit = standardAreaSqm * pricePerSqm;
+    const safePricePerSqm = pricePerSqm ?? 0;
+    const hasPricing = pricePerSqm !== null;
+    // Rounding/billable sheet quantities stay visible in the response, but
+    // material cost is prorated by the actual project area.
+    const computedPricePerFullUnit = standardAreaSqm * safePricePerSqm;
     const pricePerFullUnit = effectiveUnitPrice !== null && effectiveUnitPrice > 0
-      ? Math.min(computedPricePerFullUnit, effectiveUnitPrice)
+      ? effectiveUnitPrice
       : computedPricePerFullUnit;
-    const projectCost = billingMode === 'area_prorated'
-      ? projectAreaSqm * pricePerSqm
-      : minimumUnits * pricePerFullUnit;
+    const projectCost = projectAreaSqm * safePricePerSqm;
     const billableUnits = billingMode === 'area_prorated'
       ? (projectAreaSqm / standardAreaSqm) * quantityNumber
       : minimumUnits * quantityNumber;
@@ -2022,14 +2039,14 @@ exports.calculateMaterialCost = async (req, res) => {
           minimumUnits: billingMode === 'area_prorated' ? 0 : minimumUnits,
           quantity: quantityNumber,
           billableUnits,
-          needsPricing: effectiveUnitPrice === null && pricePerSqm === null,
+          needsPricing: !hasPricing,
           wasteThreshold: material.wasteThreshold,
           rawRemainder: billingMode === 'area_prorated' ? '0.0000' : rawRemainder.toFixed(4),
           wasteThresholdArea: wasteThresholdArea.toFixed(4),
           extraUnitAdded
         },
         pricing: {
-          pricePerSqm: pricePerSqm.toFixed(2),
+          pricePerSqm: safePricePerSqm.toFixed(2),
           computedPricePerFullUnit: computedPricePerFullUnit.toFixed(2),
           pricePerFullUnit: pricePerFullUnit.toFixed(2),
           projectCost: projectCost.toFixed(2),
@@ -2173,6 +2190,106 @@ exports.updateMaterial = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error updating material"
+    });
+  }
+};
+
+/**
+ * @desc    Update material price only
+ * @route   PATCH /api/product/materials/:materialId/price
+ * @access  Private
+ */
+exports.updateMaterialPrice = async (req, res) => {
+  try {
+    const { materialId } = req.params;
+    const body = req.body || {};
+
+    const material = await Material.findOne(req.user.isPlatformOwner
+      ? { _id: materialId }
+      : { _id: materialId, companyName: req.companyName });
+
+    if (!material) {
+      return res.status(404).json({
+        success: false,
+        message: "Material not found"
+      });
+    }
+
+    const priceInput = body.price ?? body.pricePerUnit ?? body.pricePerSqm;
+    const enteredPrice = parseNumber(priceInput);
+    if (enteredPrice === null || enteredPrice < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter a valid material price."
+      });
+    }
+
+    const finalPricingUnit = normalizePricingUnit(body.pricingUnit || material.pricingUnit || material.unit);
+    const finalSqmPricingBasis = normalizeSqmPricingBasis(body.sqmPricingBasis || body.priceBasis || material.sqmPricingBasis);
+
+    if (finalPricingUnit === 'sqm') {
+      material.pricingUnit = 'sqm';
+      material.sqmPricingBasis = finalSqmPricingBasis;
+      material.billingMode = normalizeBillingMode(body.billingMode || material.billingMode, 'sqm');
+
+      if (finalSqmPricingBasis === 'Sheet Size') {
+        const standardWidth = parseNumber(material.standardWidth);
+        const standardLength = parseNumber(material.standardLength);
+        const standardUnit = normalizeDimensionUnit(material.standardUnit || 'inches') || 'inches';
+        if (!standardWidth || !standardLength) {
+          return res.status(400).json({
+            success: false,
+            message: "Standard width and length are required to save a full-sheet sqm price."
+          });
+        }
+        const standardAreaSqm = calculateSquareMeters(standardWidth, standardLength, standardUnit);
+        material.pricePerSqm = standardAreaSqm > 0 ? enteredPrice / standardAreaSqm : null;
+        material.pricePerUnit = enteredPrice;
+      } else {
+        material.pricePerSqm = enteredPrice;
+        material.pricePerUnit = null;
+      }
+    } else {
+      material.pricingUnit = finalPricingUnit;
+      material.billingMode = normalizeBillingMode(body.billingMode || 'unit', finalPricingUnit);
+      material.pricePerUnit = enteredPrice;
+      material.pricePerSqm = null;
+    }
+
+    material.catalogPrice = null;
+    material.isCatalogPriced = false;
+
+    await material.save();
+
+    const currentUser = await User.findById(req.user.id);
+    await notifyCompany({
+      companyName: material.companyName,
+      type: 'material_updated',
+      title: 'Material Price Updated',
+      message: `${currentUser?.fullname || 'A user'} updated pricing for material: ${material.name}`,
+      performedBy: req.user.id,
+      performedByName: currentUser?.fullname || 'User',
+      metadata: {
+        materialId: material._id,
+        materialName: material.name,
+        pricePerUnit: material.pricePerUnit ?? null,
+        pricePerSqm: material.pricePerSqm ?? null,
+        pricingUnit: material.pricingUnit,
+        sqmPricingBasis: material.sqmPricingBasis
+      },
+      excludeUserId: req.user.id
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Material price updated successfully.",
+      data: materialToApi(material)
+    });
+  } catch (error) {
+    console.error("Update material price error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error updating material price"
     });
   }
 };

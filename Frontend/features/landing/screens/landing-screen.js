@@ -8,7 +8,7 @@ import { useAuth } from "@/features/auth/context/auth-context";
 const features = [
   ["materials", "Materials", "Keep approved materials, dimensions, images, variants and pricing organized."],
   ["quotations", "Quotations", "Turn customer requirements into clear estimates backed by real material costs."],
-  ["boms", "Build of Materials", "Calculate material quantities, standard sheet usage, overhead and selling price."],
+  ["boms", "Bill of Materials", "Calculate material quantities, standard sheet usage, overhead and selling price."],
   ["orders", "Orders", "Move approved work from quotation into production and payment tracking."],
   ["sales", "Sales & Inventory", "Follow revenue, customers, stock movement and business performance."],
   ["invoices", "Invoices", "Create invoices from completed work and track balances through settlement."]
@@ -23,7 +23,7 @@ const slides = [
     visual: "catalog"
   },
   {
-    eyebrow: "Build of Materials",
+    eyebrow: "Bill of Materials",
     title: "Know the cost before production begins.",
     copy: "Calculate area-based and quantity-based materials, add overhead, set margins and attach the finished product.",
     icon: "boms",
@@ -41,7 +41,7 @@ const slides = [
 const steps = [
   ["01", "Add your materials", "Create an approved library with images, dimensions, colors, units and prices."],
   ["02", "Build and price", "Combine materials into a product, calculate costs and apply your margin."],
-  ["03", "Send the quotation", "Prepare a customer-ready quotation from the completed Build of Materials."],
+  ["03", "Send the quotation", "Prepare a customer-ready quotation from the completed Bill of Materials."],
   ["04", "Deliver and collect", "Track the order, invoice the customer and record payment."]
 ];
 
@@ -79,7 +79,7 @@ export function LandingScreen() {
         <div className="landing-hero-copy">
           <span className="landing-kicker"><i /> Built for furniture and production teams</span>
           <h1>From material cost to <em>completed order.</em></h1>
-          <p>WoodWork brings materials, Build of Materials, quotations, production, sales and invoices into one clear operating system for your business.</p>
+          <p>WoodWork brings materials, Bill of Materials, quotations, production, sales and invoices into one clear operating system for your business.</p>
           <div className="landing-hero-actions">
             <Link className="landing-button" href={appHref}>{appLabel}<span>→</span></Link>
             <a className="landing-secondary-button" href="#workflow">See how it works</a>
@@ -200,7 +200,7 @@ function ProductVisual({ type }) {
         )}
         {type === "bom" && (
           <div className="mock-bom">
-            <div className="mock-title"><span><small>Build of Materials</small><strong>Walnut side table</strong></span><b>Draft</b></div>
+            <div className="mock-title"><span><small>Bill of Materials</small><strong>Walnut side table</strong></span><b>Draft</b></div>
             <div className="mock-bom-layout">
               <div>{["Walnut board", "Wood glue", "Clear finish"].map((name, index) => <article key={name}><i>{index + 1}</i><span><strong>{name}</strong><small>{["2.40 sqm", "1 piece", "2 liters"][index]}</small></span><b>{["₦44,400", "₦3,500", "₦8,000"][index]}</b></article>)}</div>
               <aside><small>Materials</small><strong>₦55,900</strong><small>Overhead</small><strong>₦12,000</strong><small>Selling price</small><b>₦95,000</b></aside>

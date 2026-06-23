@@ -40,7 +40,8 @@ const emptyMaterialInput = {
   width: "",
   length: "",
   dimensionUnit: "cm",
-  manualPrice: ""
+  manualPrice: "",
+  manualPriceBasis: "sqm"
 };
 
 const formatThousandsInput = (value) => {
@@ -112,6 +113,7 @@ export function BomQuotationWorkspace({ token, user, mode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const calculationRequestRef = useRef(0);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -137,6 +139,11 @@ export function BomQuotationWorkspace({ token, user, mode }) {
       setLoading(false);
     }
   }, [token]);
+
+  const updateMaterialInput = useCallback((nextInput) => {
+    calculationRequestRef.current += 1;
+    setMaterialInput(nextInput);
+  }, []);
 
   useEffect(() => {
     queueMicrotask(loadWorkspace);
@@ -225,24 +232,35 @@ export function BomQuotationWorkspace({ token, user, mode }) {
     setBuilderOpen(true);
   };
 
-  const calculateMaterial = async () => {
-    if (!selectedMaterial) return setError("Select a material variant first.");
+  const calculateMaterial = useCallback(async ({ silent = false } = {}) => {
+    if (!selectedMaterial) {
+      if (!silent) setError("Select a material variant first.");
+      return false;
+    }
     const unit = materialUnit(selectedMaterial);
     const areaBased = isAreaUnit(selectedMaterial);
     const quantity = numberValue(materialInput.quantity);
     const manualPrice = numberValue(materialInput.manualPrice);
 
-    if (!areaBased && quantity <= 0) return setError("Quantity must be greater than zero.");
+    if (!areaBased && quantity <= 0) {
+      if (!silent) setError("Quantity must be greater than zero.");
+      return false;
+    }
     if (!areaBased && isIntegerUnit(unit) && !Number.isInteger(quantity)) {
-      return setError(`${unit} uses whole-number quantities.`);
+      if (!silent) setError(`${unit} uses whole-number quantities.`);
+      return false;
     }
     if (!selectedMaterial.isPriced && manualPrice <= 0) {
-      return setError("This material is unpriced. Enter a manual unit price.");
+      if (!silent) setError("This material is unpriced. Enter a manual price.");
+      return false;
     }
     if (areaBased && (numberValue(materialInput.width) <= 0 || numberValue(materialInput.length) <= 0)) {
-      return setError("Enter the project length and width for an sqm material.");
+      if (!silent) setError("Enter the project length and width for an sqm material.");
+      return false;
     }
 
+    const requestId = calculationRequestRef.current + 1;
+    calculationRequestRef.current = requestId;
     setBusy(true);
     setError("");
     try {
@@ -263,14 +281,17 @@ export function BomQuotationWorkspace({ token, user, mode }) {
             requiredWidth: numberValue(materialInput.width),
             requiredUnit: materialInput.dimensionUnit,
             quantity: 1,
-            manualPrice: selectedMaterial.isPriced ? undefined : manualPrice
+            manualPrice: selectedMaterial.isPriced ? undefined : manualPrice,
+            manualPriceBasis: selectedMaterial.isPriced ? undefined : materialInput.manualPriceBasis
           } : { quantity }
         });
         const data = result.data;
         calculation = {
           ...data.calculation,
           totalMaterialCost: numberValue(data.pricing?.totalMaterialCost),
-          manualPrice: !selectedMaterial.isPriced
+          manualPrice: !selectedMaterial.isPriced,
+          manualPriceValue: !selectedMaterial.isPriced ? manualPrice : undefined,
+          manualPriceBasis: !selectedMaterial.isPriced ? materialInput.manualPriceBasis : undefined
         };
         squareMeter = numberValue(data.project?.projectAreaSqm || data.dimensions?.projectAreaSqm);
         price = numberValue(
@@ -280,7 +301,7 @@ export function BomQuotationWorkspace({ token, user, mode }) {
         );
         lineTotal = numberValue(data.pricing?.totalMaterialCost);
       } else {
-        calculation = { mode: "unit_based", quantity, totalMaterialCost: lineTotal, manualPrice: true };
+        calculation = { mode: "unit_based", quantity, totalMaterialCost: lineTotal, manualPrice: true, manualPriceValue: manualPrice };
       }
 
       const material = {
@@ -306,13 +327,25 @@ export function BomQuotationWorkspace({ token, user, mode }) {
         sourceMaterial: selectedMaterial
       };
 
+      if (calculationRequestRef.current !== requestId) return false;
       setCalculationResult(material);
+      return true;
     } catch (requestError) {
+      if (calculationRequestRef.current !== requestId) return false;
       setError(requestError.message);
+      return false;
     } finally {
-      setBusy(false);
+      if (calculationRequestRef.current === requestId) setBusy(false);
     }
-  };
+  }, [materialInput, selectedMaterial, token]);
+
+  useEffect(() => {
+    if (!builderOpen || builderStep !== "materials" || !selectedMaterial) return undefined;
+    const timeout = setTimeout(() => {
+      calculateMaterial({ silent: true });
+    }, 450);
+    return () => clearTimeout(timeout);
+  }, [builderOpen, builderStep, calculateMaterial, selectedMaterial]);
 
   const addCalculatedMaterial = () => {
     if (!calculationResult) return;
@@ -344,12 +377,13 @@ export function BomQuotationWorkspace({ token, user, mode }) {
       isPriced: !material.calculation?.manualPrice,
       unitPrice: material.price
     });
-    setMaterialInput({
+    updateMaterialInput({
       quantity: String(material.quantity || 1),
       width: material.width ? String(material.width) : "",
       length: material.length ? String(material.length) : "",
       dimensionUnit: material.dimensionUnit || "cm",
-      manualPrice: material.calculation?.manualPrice ? String(material.price) : ""
+      manualPrice: material.calculation?.manualPrice ? String(material.calculation?.manualPriceValue || material.price) : "",
+      manualPriceBasis: material.calculation?.manualPriceBasis || "sqm"
     });
     setCalculationResult(null);
     setEditingMaterialIndex(index);
@@ -398,7 +432,8 @@ export function BomQuotationWorkspace({ token, user, mode }) {
             requiredWidth: material.width,
             requiredUnit: material.dimensionUnit,
             quantity,
-            manualPrice: material.calculation?.manualPrice ? material.price : undefined
+            manualPrice: material.calculation?.manualPrice ? (material.calculation?.manualPriceValue || material.price) : undefined,
+            manualPriceBasis: material.calculation?.manualPriceBasis
           } : { quantity }
         });
         const data = result.data;
@@ -620,7 +655,7 @@ export function BomQuotationWorkspace({ token, user, mode }) {
       <section className="workspace-heading bom-heading">
         <div>
           <span className="eyebrow">Materials to client document</span>
-          <h1>{mode === "boms" ? "Build of Materials" : "Quotation Workspace"}</h1>
+          <h1>{mode === "boms" ? "Bill of Materials" : "Quotation Workspace"}</h1>
           <p>Build each product from approved materials, calculate its BOM, then combine completed BOMs into a client quotation.</p>
         </div>
         <button className="primary-button inline" onClick={openNewBom}>Create BOM</button>
@@ -667,13 +702,12 @@ export function BomQuotationWorkspace({ token, user, mode }) {
           setAdditionalCost={setAdditionalCost}
           setDraft={setDraft}
           setBuilderStep={setBuilderStep}
-          setMaterialInput={setMaterialInput}
+          setMaterialInput={updateMaterialInput}
           setProductForm={setProductForm}
           setSelectedMaterial={setSelectedMaterial}
           setCalculationResult={setCalculationResult}
           setEditingMaterialIndex={setEditingMaterialIndex}
           onAddCost={addCost}
-          onCalculateMaterial={calculateMaterial}
           onAddCalculatedMaterial={addCalculatedMaterial}
           onEditMaterial={editMaterial}
           onUpdateMaterialQuantity={updateMaterialQuantity}
@@ -879,7 +913,7 @@ function BomBuilder(props) {
     materialInput, overheadCosts, pricing, products, productForm, savedOverheadTotal, selectedMaterial, setAdditionalCost,
     setBuilderStep, setCalculationResult, setDraft, setEditingMaterialIndex, setMaterialInput,
     setProductForm, setSelectedMaterial, onAddCalculatedMaterial, onAddCost,
-    onApplySavedOverhead, onCalculateMaterial, onClose, onContinueMaterials, onContinueProduct, onCreateProduct,
+    onApplySavedOverhead, onClose, onContinueMaterials, onContinueProduct, onCreateProduct,
     onEditMaterial, onSave, onSelectProduct, onUpdateMaterialQuantity
   } = props;
   const areaBased = isAreaUnit(selectedMaterial);
@@ -960,11 +994,12 @@ function BomBuilder(props) {
                       ) : (
                         <label>Quantity<input type="number" min="0" step={isIntegerUnit(materialUnit(selectedMaterial)) ? "1" : "any"} value={materialInput.quantity} onChange={(event) => updateMaterialInput({ ...materialInput, quantity: event.target.value })} /></label>
                       )}
-                      {!selectedMaterial.isPriced && <label>Manual price per unit<input inputMode="decimal" placeholder="e.g. 300,000" value={materialInput.manualPrice} onChange={(event) => updateMaterialInput({ ...materialInput, manualPrice: formatThousandsInput(event.target.value) })} /></label>}
+                      {!selectedMaterial.isPriced && areaBased && (
+                        <label>Manual price basis<select value={materialInput.manualPriceBasis} onChange={(event) => updateMaterialInput({ ...materialInput, manualPriceBasis: event.target.value })}><option value="sqm">Per sqm</option><option value="full_unit">Full sheet price</option></select></label>
+                      )}
+                      {!selectedMaterial.isPriced && <label>{areaBased ? (materialInput.manualPriceBasis === "full_unit" ? "Manual full sheet price" : "Manual price per sqm") : "Manual price per unit"}<input inputMode="decimal" placeholder="e.g. 300,000" value={materialInput.manualPrice} onChange={(event) => updateMaterialInput({ ...materialInput, manualPrice: formatThousandsInput(event.target.value) })} /></label>}
                     </div>
-                    <div className="material-calculate-row">
-                      <button className="secondary-button material-calculate-button" disabled={busy} onClick={onCalculateMaterial}>{busy ? "Calculating..." : "Calculate"}</button>
-                    </div>
+                    {busy && <div className="material-auto-calculate-status">Calculating...</div>}
                     {calculationResult && (
                       <div className="calculation-result" ref={calculationResultRef}>
                         {areaBased && <span>Required area<strong>{numberValue(calculationResult.squareMeter).toFixed(2)} sqm</strong></span>}
